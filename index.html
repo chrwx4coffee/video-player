@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="tr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Premium Video Oynatıcı</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+</head>
+
+<body>
+    <div class="video-container" id="videoContainer">
+
+        <div class="video-wrapper" id="videoWrapper">
+            <!-- Video etiketi HTML5 tarafından desteklenir -->
+            <video id="videoPlayer">
+                Tarayıcınız video etiketini desteklemiyor.
+            </video>
+        </div>
+
+        <div class="file-loader" id="fileLoader">
+            <i class="fas fa-clapperboard"></i>
+            <h2>Video Oynatıcı</h2>
+            <p>Yalnızca .mp4 (Web Uyumlu) dosyalarını destekler*</p>
+            <input type="file" id="fileInput" accept="video/mp4" />
+            <label for="fileInput" class="custom-file-upload">
+                <i class="fas fa-folder-open"></i> Dosya Seç
+            </label>
+        </div>
+
+        <div class="controls glass-panel active" id="controls">
+            <div class="progress-container" id="progressContainer">
+                <div class="progress-bar" id="progressBar"></div>
+            </div>
+
+            <div class="controls-main">
+                <div class="controls-left">
+                    <button id="playPauseBtn" class="control-btn" title="Oynat/Duraklat (Boşluk)"><i
+                            class="fas fa-play"></i></button>
+                    <button id="rewindBtn" class="control-btn" title="Geri Sar (Sol Ok)"><i
+                            class="fas fa-backward-step"></i> 10s</button>
+                    <button id="forwardBtn" class="control-btn" title="İleri Sar (Sağ Ok)"><i
+                            class="fas fa-forward-step"></i> 30s</button>
+
+                    <div class="volume-container">
+                        <button id="muteBtn" class="control-btn" title="Sessiz (M)"><i
+                                class="fas fa-volume-high"></i></button>
+                        <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="1">
+                    </div>
+
+                    <div class="time-display">
+                        <span id="currentTime">00:00</span> / <span id="duration">00:00</span>
+                    </div>
+                </div>
+
+                <div class="controls-right">
+                    <div class="zoom-controls">
+                        <button id="zoomOutBtn" class="control-btn" title="Uzaklaştır (-)"><i
+                                class="fas fa-magnifying-glass-minus"></i></button>
+                        <span id="zoomLevelText">100%</span>
+                        <button id="zoomInBtn" class="control-btn" title="Yakınlaştır (+)"><i
+                                class="fas fa-magnifying-glass-plus"></i></button>
+                        <button id="resetZoomBtn" class="control-btn" title="Sıfırla"><i
+                                class="fas fa-compress"></i></button>
+                    </div>
+                    <button id="fullscreenBtn" class="control-btn" title="Tam Ekran (F)"><i
+                            class="fas fa-expand"></i></button>
+                </div>
+            </div>
+        </div>
+
+        <div class="zoom-hint" id="zoomHint">Kaydırmak için sürükleyin</div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
