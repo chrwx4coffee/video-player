@@ -6,72 +6,241 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Premium Video Oynatıcı</title>
     <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Syne:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
 </head>
 
 <body>
-    <div class="video-container" id="videoContainer">
 
-        <div class="video-wrapper" id="videoWrapper">
-            <!-- Video etiketi HTML5 tarafından desteklenir -->
-            <video id="videoPlayer">
-                Tarayıcınız video etiketini desteklemiyor.
-            </video>
-        </div>
+    <div class="app-shell">
 
-        <div class="file-loader" id="fileLoader">
-            <i class="fas fa-clapperboard"></i>
-            <h2>Video Oynatıcı</h2>
-            <p>Yalnızca .mp4 (Web Uyumlu) dosyalarını destekler*</p>
-            <input type="file" id="fileInput" accept="video/mp4" />
-            <label for="fileInput" class="custom-file-upload">
-                <i class="fas fa-folder-open"></i> Dosya Seç
+        <!-- Top Bar -->
+        <div class="top-bar">
+            <div class="top-bar-logo">
+                <i class="fas fa-clapperboard"></i>
+                <span>PREMIER</span>
+            </div>
+
+            <label for="fileInput" class="top-bar-btn" title="Video Aç (Ctrl+O)">
+                <i class="fas fa-file-video"></i>
+                <span class="top-bar-label">Video Aç</span>
             </label>
+            <input type="file" id="fileInput" accept="video/*,video/x-matroska,video/x-msvideo,video/quicktime">
+
+            <label for="folderInput" class="top-bar-btn" title="Klasör Aç (Ctrl+Shift+O)">
+                <i class="fas fa-folder-open"></i>
+                <span class="top-bar-label">Klasör</span>
+            </label>
+            <input type="file" id="folderInput" webkitdirectory multiple accept="video/*">
+
+            <label for="subtitleFileInput" class="top-bar-btn" title="Altyazı Yükle (Ctrl+L)">
+                <i class="fas fa-closed-captioning"></i>
+                <span class="top-bar-label">Altyazı</span>
+            </label>
+            <input type="file" id="subtitleFileInput" accept=".srt,.vtt,.ass,.ssa">
+
+            <div class="top-bar-sep"></div>
+
+            <button class="top-bar-btn" id="playlistToggle" title="Oynatma Listesi">
+                <i class="fas fa-list"></i>
+                <span class="top-bar-label">Liste</span>
+            </button>
         </div>
 
-        <div class="controls glass-panel active" id="controls">
-            <div class="progress-container" id="progressContainer">
-                <div class="progress-bar" id="progressBar"></div>
+        <!-- Main -->
+        <div class="main-area">
+
+            <!-- Playlist -->
+            <div class="playlist-panel" id="playlistPanel">
+                <div class="playlist-header">
+                    <span><i class="fas fa-film"></i> &nbsp;Oynatma Listesi</span>
+                    <span id="playlistCount" style="color:var(--text-faint)">0 video</span>
+                </div>
+                <ul id="playlistList"></ul>
             </div>
 
-            <div class="controls-main">
-                <div class="controls-left">
-                    <button id="playPauseBtn" class="control-btn" title="Oynat/Duraklat (Boşluk)"><i
-                            class="fas fa-play"></i></button>
-                    <button id="rewindBtn" class="control-btn" title="Geri Sar (Sol Ok)"><i
-                            class="fas fa-backward-step"></i> 10s</button>
-                    <button id="forwardBtn" class="control-btn" title="İleri Sar (Sağ Ok)"><i
-                            class="fas fa-forward-step"></i> 30s</button>
+            <!-- Video -->
+            <div class="video-container" id="videoContainer">
 
-                    <div class="volume-container">
-                        <button id="muteBtn" class="control-btn" title="Sessiz (M)"><i
-                                class="fas fa-volume-high"></i></button>
-                        <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="1">
+                <!-- File Loader -->
+                <div class="file-loader active" id="fileLoader">
+                    <i class="fas fa-clapperboard"></i>
+                    <h2>Video Oynatıcı</h2>
+                    <p>MP4 · WebM · MKV · AVI · MOV ve daha fazlası</p>
+                    <div class="loader-buttons">
+                        <label for="fileInput" class="custom-file-upload">
+                            <i class="fas fa-folder-open"></i> Dosya Seç
+                        </label>
+                        <label for="folderInput" class="custom-file-upload secondary">
+                            <i class="fas fa-folder"></i> Klasör Aç
+                        </label>
+                    </div>
+                    <p class="loader-drop-hint"><i class="fas fa-arrow-down"></i> &nbsp;veya dosyayı buraya sürükle</p>
+                </div>
+
+                <!-- Video Wrapper -->
+                <div class="video-wrapper" id="videoWrapper">
+                    <video id="videoPlayer" preload="metadata"></video>
+                </div>
+
+                <!-- Loading Spinner -->
+                <div class="loading-spinner" id="loadingSpinner">
+                    <div class="spin"></div>
+                </div>
+
+                <!-- Subtitle -->
+                <div class="subtitle-display" id="subtitleDisplay"></div>
+
+                <!-- Zoom Hint -->
+                <div class="zoom-hint" id="zoomHint">
+                    <i class="fas fa-arrows-up-down-left-right"></i> Kaydırmak için sürükle
+                </div>
+
+                <!-- Controls -->
+                <div class="controls active" id="controls">
+
+                    <!-- Progress -->
+                    <div class="progress-container" id="progressContainer">
+                        <div class="progress-buffer" id="progressBuffer"></div>
+                        <div class="progress-bar" id="progressBar"></div>
+                        <div class="progress-tooltip" id="progressTooltip">0:00</div>
                     </div>
 
-                    <div class="time-display">
-                        <span id="currentTime">00:00</span> / <span id="duration">00:00</span>
+                    <!-- Main Row -->
+                    <div class="controls-main">
+                        <div class="controls-left">
+
+                            <!-- Prev -->
+                            <button id="prevBtn" class="control-btn" title="Önceki (Ctrl+Sol)">
+                                <i class="fas fa-backward-step"></i>
+                            </button>
+
+                            <!-- Play -->
+                            <button id="playPauseBtn" class="control-btn primary" title="Oynat/Duraklat (Boşluk)">
+                                <i class="fas fa-play"></i>
+                            </button>
+
+                            <!-- Next -->
+                            <button id="nextBtn" class="control-btn" title="Sonraki (Ctrl+Sağ)">
+                                <i class="fas fa-forward-step"></i>
+                            </button>
+
+                            <!-- Rewind -->
+                            <button id="rewindBtn" class="control-btn" title="10s Geri (Sol Ok)">
+                                <i class="fas fa-rotate-left"></i> 10s
+                            </button>
+
+                            <!-- Forward -->
+                            <button id="forwardBtn" class="control-btn" title="30s İleri (Sağ Ok)">
+                                30s <i class="fas fa-rotate-right"></i>
+                            </button>
+
+                            <!-- Volume -->
+                            <div class="volume-group">
+                                <button id="muteBtn" class="control-btn" title="Sessiz (M)">
+                                    <i class="fas fa-volume-high"></i>
+                                </button>
+                                <input type="range" id="volumeSlider" class="volume-slider" min="0" max="1" step="0.01"
+                                    value="1">
+                            </div>
+
+                            <!-- Time -->
+                            <div class="time-display">
+                                <span class="current" id="currentTime">00:00</span>
+                                <span style="color:var(--text-faint)"> / </span>
+                                <span id="duration">00:00</span>
+                            </div>
+
+                        </div>
+                        <div class="controls-right">
+
+                            <!-- Speed -->
+                            <div class="popup-wrapper">
+                                <button id="speedBtn" class="control-btn" title="Oynatma Hızı">
+                                    <i class="fas fa-gauge-high"></i>
+                                    <span>1.0x</span>
+                                </button>
+                                <div class="popup-menu" id="speedMenu">
+                                    <div class="popup-label">Oynatma Hızı</div>
+                                    <button class="speed-option" data-speed="0.25">0.25x</button>
+                                    <button class="speed-option" data-speed="0.5">0.5x</button>
+                                    <button class="speed-option" data-speed="0.75">0.75x</button>
+                                    <button class="speed-option active" data-speed="1.0">1.0x</button>
+                                    <button class="speed-option" data-speed="1.25">1.25x</button>
+                                    <button class="speed-option" data-speed="1.5">1.5x</button>
+                                    <button class="speed-option" data-speed="1.75">1.75x</button>
+                                    <button class="speed-option" data-speed="2.0">2.0x</button>
+                                    <button class="speed-option" data-speed="2.5">2.5x</button>
+                                    <button class="speed-option" data-speed="3.0">3.0x</button>
+                                </div>
+                            </div>
+
+                            <!-- Subtitle -->
+                            <div class="popup-wrapper">
+                                <button id="subtitleBtn" class="control-btn" title="Altyazı">
+                                    <i class="fas fa-closed-captioning"></i>
+                                </button>
+                                <div class="popup-menu" id="subtitleMenu">
+                                    <div class="popup-label">Altyazı</div>
+                                    <button class="subtitle-option active" id="subtitleOff">Altyazı Yok</button>
+                                    <div class="popup-divider"></div>
+                                    <div id="subtitleList"></div>
+                                    <div class="popup-divider"></div>
+                                    <label for="subtitleFileInput" class="subtitle-load-btn">
+                                        <i class="fas fa-plus"></i> Altyazı Yükle
+                                    </label>
+                                </div>
+                            </div>
+
+                            <!-- Zoom -->
+                            <div class="zoom-group">
+                                <button id="zoomOutBtn" class="control-btn" title="Uzaklaştır (Ctrl+-)">
+                                    <i class="fas fa-magnifying-glass-minus"></i>
+                                </button>
+                                <span class="zoom-level" id="zoomLevelText">100%</span>
+                                <button id="zoomInBtn" class="control-btn" title="Yakınlaştır (Ctrl++)">
+                                    <i class="fas fa-magnifying-glass-plus"></i>
+                                </button>
+                                <button id="resetZoomBtn" class="control-btn" title="Zoom Sıfırla (Ctrl+0)">
+                                    <i class="fas fa-compress"></i>
+                                </button>
+                            </div>
+
+                            <!-- Fullscreen -->
+                            <button id="fullscreenBtn" class="control-btn" title="Tam Ekran (F)">
+                                <i class="fas fa-expand"></i>
+                            </button>
+
+                        </div>
                     </div>
                 </div>
 
-                <div class="controls-right">
-                    <div class="zoom-controls">
-                        <button id="zoomOutBtn" class="control-btn" title="Uzaklaştır (-)"><i
-                                class="fas fa-magnifying-glass-minus"></i></button>
-                        <span id="zoomLevelText">100%</span>
-                        <button id="zoomInBtn" class="control-btn" title="Yakınlaştır (+)"><i
-                                class="fas fa-magnifying-glass-plus"></i></button>
-                        <button id="resetZoomBtn" class="control-btn" title="Sıfırla"><i
-                                class="fas fa-compress"></i></button>
-                    </div>
-                    <button id="fullscreenBtn" class="control-btn" title="Tam Ekran (F)"><i
-                            class="fas fa-expand"></i></button>
-                </div>
-            </div>
+            </div><!-- /video-container -->
+        </div><!-- /main-area -->
+
+        <!-- Status Bar -->
+        <div class="status-bar">
+            <span id="statusBar">Hazır — Video dosyası seçin veya sürükleyip bırakın</span>
         </div>
 
-        <div class="zoom-hint" id="zoomHint">Kaydırmak için sürükleyin</div>
+    </div><!-- /app-shell -->
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+
+    <!-- Resume Dialog -->
+    <div class="resume-dialog" id="resumeDialog">
+        <div class="resume-box">
+            <h3>Kaldığınız Yerden Devam Et</h3>
+            <p>Bu videoyu daha önce <span id="resumeTime">0:00</span> konumuna kadar izlediniz. Devam etmek ister
+                misiniz?</p>
+            <div class="resume-btns">
+                <button class="btn-yes" id="resumeYes">Devam Et</button>
+                <button class="btn-no" id="resumeNo">Baştan Başla</button>
+            </div>
+        </div>
     </div>
 
     <script src="script.js"></script>

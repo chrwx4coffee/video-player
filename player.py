@@ -27,7 +27,7 @@ from PyQt6.QtMultimediaWidgets import QGraphicsVideoItem
 from PyQt6.QtCore import Qt, QUrl, QRectF, QTimer, QSettings, pyqtSignal
 from PyQt6.QtGui import (
     QIcon, QTransform, QWheelEvent, QMouseEvent, QKeySequence,
-    QShortcut, QAction, QFont, QPalette, QColor
+    QShortcut, QAction, QFont, QPalette, QColor, QPainter
 )
 from functools import partial
 
