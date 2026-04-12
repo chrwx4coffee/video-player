@@ -20,7 +20,12 @@ os.environ["VK_ICD_FILENAMES"] = ""
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QSlider, QFileDialog, QLabel, QGraphicsView, QGraphicsScene,
-    QSizePolicy, QComboBox, QMessageBox, QProgressBar, QFrame, QToolTip
+    QSizePolicy, QComboBox, QMessageBox, QProgressBar, QFrame, QToolTip,
+    QDialog, QSplitter, QScrollArea, QGroupBox
+)
+from PyQt6.QtWidgets import (
+    QGraphicsEffect, QGraphicsBlurEffect, QGraphicsColorizeEffect,
+    QGraphicsOpacityEffect, QGraphicsDropShadowEffect
 )
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput, QMediaDevices
 from PyQt6.QtMultimediaWidgets import QGraphicsVideoItem
@@ -30,6 +35,58 @@ from PyQt6.QtGui import (
     QShortcut, QAction, QFont, QPalette, QColor, QPainter
 )
 from functools import partial
+
+try:
+    import numpy as np
+    _NUMPY_AVAILABLE = True
+except ImportError:
+    _NUMPY_AVAILABLE = False
+
+from PyQt6.QtCore import QPoint
+from PyQt6.QtGui import QImage, QPixmap
+
+class SharpenEffect(QGraphicsEffect):
+    """Unsharp mask ile gerçek netlik artırma efekti (numpy tabanlı)."""
+    def __init__(self, strength=0):
+        super().__init__()
+        self._strength = strength  # 1–10
+
+    def set_strength(self, v):
+        self._strength = max(0, v)
+        self.update()
+
+    def draw(self, painter):
+        from PyQt6.QtCore import QPoint
+        pixmap, offset = self.sourcePixmap()
+        if pixmap.isNull():
+            painter.drawPixmap(offset, pixmap)
+            return
+        if self._strength == 0 or not _NUMPY_AVAILABLE:
+            painter.drawPixmap(offset, pixmap)
+            return
+
+        img = pixmap.toImage().convertToFormat(QImage.Format.Format_ARGB32)
+        w, h = img.width(), img.height()
+        ptr = img.bits()
+        ptr.setsize(h * w * 4)
+        arr = np.frombuffer(ptr, dtype=np.uint8).reshape((h, w, 4)).copy()
+
+        # Unsharp mask: sharpened = original + strength * (original - gaussian_blur)
+        flt = arr[:, :, :3].astype(np.float32)
+        # Simple 3x3 gaussian blur via separable filter
+        k = np.array([0.25, 0.5, 0.25], dtype=np.float32)
+        blurred = np.apply_along_axis(
+            lambda x: np.convolve(x, k, mode='same'), axis=0,
+            arr=np.apply_along_axis(lambda x: np.convolve(x, k, mode='same'), axis=1, arr=flt)
+        )
+        strength = self._strength * 0.4  # max ~4.0
+        sharpened = flt + strength * (flt - blurred)
+        arr[:, :, :3] = np.clip(sharpened, 0, 255).astype(np.uint8)
+
+        result = QImage(arr.tobytes(), w, h, w * 4, QImage.Format.Format_ARGB32)
+        painter.drawImage(offset, result)
+
+
 
 class JumpSlider(QSlider):
     """Tıklanan yere atlayan slider"""
@@ -53,13 +110,12 @@ class CustomGraphicsView(QGraphicsView):
         self.setRenderHints(QPainter.RenderHint.SmoothPixmapTransform)
         
     def wheelEvent(self, event: QWheelEvent):
-        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-            if event.angleDelta().y() > 0:
-                self.zoom_in()
-            else:
-                self.zoom_out()
+        # Orta tuş kaymasıyla zoom (Ctrl gereksinimi kaldırıldı)
+        if event.angleDelta().y() > 0:
+            self.zoom_in()
         else:
-            super().wheelEvent(event)
+            self.zoom_out()
+        event.accept()
 
     def zoom_in(self):
         self.scale(1.2, 1.2)
@@ -109,6 +165,11 @@ class VideoPlayer(QMainWindow):
         self.current_playlist_index = -1
         self.subtitle_tracks = []
         self.current_subtitle_index = -1
+        self.rotation_angle = 0
+        self.brightness = 100
+        self.contrast = 100
+        self.saturation = 100
+        self.sharpness = 0
         
         # UI oluştur
         self.init_ui()
@@ -140,32 +201,370 @@ class VideoPlayer(QMainWindow):
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
-        
+
         # Menü çubuğu
         self.create_menu_bar()
-        
-        # Video alanı
-        main_layout.addWidget(self.graphics_view, stretch=1)
-        
+
+        # Video + Ayarlar paneli (yatay splitter)
+        from PyQt6.QtWidgets import QSplitter
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter.setStyleSheet("QSplitter::handle { background-color: rgba(255, 255, 255, 0.1); width: 1px; }")
+        self.splitter.addWidget(self.graphics_view)
+
+        # Gömülü ayarlar paneli
+        self.settings_panel = self.create_settings_panel()
+        self.settings_panel.setVisible(False)
+        self.splitter.addWidget(self.settings_panel)
+        self.splitter.setSizes([1200, 300])
+
+        main_layout.addWidget(self.splitter, stretch=1)
+
         # Kontrol paneli
         controls_panel = self.create_controls_panel()
         main_layout.addWidget(controls_panel)
-        
+
         # Durum çubuğu
         self.statusBar().showMessage("Hazır")
-        self.statusBar().setStyleSheet("QStatusBar { background-color: #161b22; color: #8b949e; }")
-        
+        self.statusBar().setStyleSheet("QStatusBar { background-color: #0f172a; color: #94a3b8; border-top: 1px solid rgba(255, 255, 255, 0.1); font-family: 'JetBrains Mono'; }")
+
         central_widget.setLayout(main_layout)
+
+    def create_settings_panel(self):
+        """Sağ taraf gömülü ayarlar paneli"""
+        from PyQt6.QtWidgets import QScrollArea, QGroupBox
         
+        panel = QFrame()
+        panel.setFixedWidth(280)
+        panel.setStyleSheet("""
+            QFrame { background-color: #0f172a; border-left: 1px solid rgba(255, 255, 255, 0.1); }
+            QLabel { color: #f8fafc; font-size: 12px; font-family: 'Inter'; }
+            QGroupBox { color: #cbd5e1; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px;
+                        margin-top: 12px; padding-top: 16px; font-size: 12px; font-family: 'Inter'; font-weight: bold; }
+            QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 6px; }
+            QSlider::groove:horizontal { height: 6px; background: rgba(255, 255, 255, 0.15); border-radius: 3px; }
+            QSlider::handle:horizontal { background: #6366f1; width: 16px; height: 16px;
+                                         margin: -5px 0; border-radius: 8px; }
+            QSlider::handle:horizontal:hover { background: #818cf8; }
+            QSlider::sub-page:horizontal { background: #6366f1; border-radius: 3px; }
+            QPushButton { background-color: rgba(255, 255, 255, 0.05); color: #cbd5e1; border: 1px solid transparent;
+                          border-radius: 6px; padding: 6px 12px; font-size: 12px; font-family: 'Inter'; }
+            QPushButton:hover { background-color: rgba(255, 255, 255, 0.1); color: #f8fafc; border-color: rgba(255, 255, 255, 0.2); }
+            QPushButton:checked { background-color: rgba(99, 102, 241, 0.15); color: #818cf8; border-color: rgba(99, 102, 241, 0.3); }
+        """)
+
+        outer = QVBoxLayout(panel)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        # Başlık
+        title_bar = QFrame()
+        title_bar.setFixedHeight(40)
+        title_bar.setStyleSheet("QFrame { background-color: rgba(15, 23, 42, 0.8); border-bottom: 1px solid rgba(255, 255, 255, 0.1); }")
+        title_layout = QHBoxLayout(title_bar)
+        title_layout.setContentsMargins(12, 0, 8, 0)
+        title_lbl = QLabel("⚙️  Video Ayarları")
+        title_lbl.setStyleSheet("color: #f8fafc; font-weight: 600; font-size: 13px; font-family: 'Inter';")
+        close_btn = QPushButton("✕")
+        close_btn.setFixedSize(24, 24)
+        close_btn.setStyleSheet("QPushButton { background: transparent; border: none; color: #94a3b8; font-size: 14px; } QPushButton:hover { color: #ef4444; }")
+        close_btn.clicked.connect(lambda: self.settings_panel.setVisible(False))
+        title_layout.addWidget(title_lbl)
+        title_layout.addStretch()
+        title_layout.addWidget(close_btn)
+        outer.addWidget(title_bar)
+
+        # Scrollable içerik
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        content = QWidget()
+        content.setStyleSheet("QWidget { background: transparent; }")
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(12)
+
+        def make_slider_row(name, min_v, max_v, default, callback):
+            box = QGroupBox(name)
+            bl = QVBoxLayout(box)
+            bl.setContentsMargins(8, 4, 8, 8)
+            row = QHBoxLayout()
+            sl = QSlider(Qt.Orientation.Horizontal)
+            sl.setRange(min_v, max_v)
+            sl.setValue(default)
+            val_lbl = QLabel(f"{default}")
+            val_lbl.setFixedWidth(32)
+            val_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
+            sl.valueChanged.connect(lambda v: (val_lbl.setText(str(v)), callback(v)))
+            row.addWidget(sl)
+            row.addWidget(val_lbl)
+            bl.addLayout(row)
+            return box, sl
+
+        # ── 1. Netlik / Bulanıklık ──
+        self._sharpen_effect = None
+        self.blur_effect = None
+
+        def apply_sharpness(v):
+            """v < 0 → keskinlik artırma, v > 0 → bulanıklık"""
+            self.video_item.setGraphicsEffect(None)
+            self._sharpen_effect = None
+            self.blur_effect = None
+            if v < 0:
+                eff = SharpenEffect()
+                eff.set_strength(-v)  # 1–30
+                self._sharpen_effect = eff
+                self.video_item.setGraphicsEffect(eff)
+            elif v > 0:
+                eff = QGraphicsBlurEffect()
+                eff.setBlurRadius(v)
+                self.blur_effect = eff
+                self.video_item.setGraphicsEffect(eff)
+
+        sharp_box = QGroupBox("🔬 Netlik / Bulanıklık")
+        sbl = QVBoxLayout(sharp_box)
+        sbl.setContentsMargins(8, 4, 8, 10)
+        hint_lbl = QLabel("◀ Daha Keskin  ──────  Daha Bulanık ▶")
+        hint_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        hint_lbl.setStyleSheet("font-size: 10px; color: #8b949e;")
+        sharp_row = QHBoxLayout()
+        self.sharp_slider = QSlider(Qt.Orientation.Horizontal)
+        self.sharp_slider.setRange(-30, 30)
+        self.sharp_slider.setValue(0)
+        self.sharp_val_lbl = QLabel("0")
+        self.sharp_val_lbl.setFixedWidth(28)
+        self.sharp_val_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.sharp_slider.valueChanged.connect(lambda v: (self.sharp_val_lbl.setText(str(v)), apply_sharpness(v)))
+        sharp_row.addWidget(self.sharp_slider)
+        sharp_row.addWidget(self.sharp_val_lbl)
+        sbl.addWidget(hint_lbl)
+        sbl.addLayout(sharp_row)
+
+        # Render kalite butonu
+        quality_row = QHBoxLayout()
+        hq_btn = QPushButton("⬛ HD Render Kalitesi")
+        hq_btn.setCheckable(True)
+        hq_btn.setChecked(True)
+        def toggle_hq(checked):
+            if checked:
+                self.graphics_view.setRenderHints(
+                    QPainter.RenderHint.Antialiasing |
+                    QPainter.RenderHint.SmoothPixmapTransform |
+                    QPainter.RenderHint.TextAntialiasing
+                )
+            else:
+                self.graphics_view.setRenderHints(QPainter.RenderHint(0))
+        hq_btn.toggled.connect(toggle_hq)
+        quality_row.addWidget(hq_btn)
+        sbl.addLayout(quality_row)
+        layout.addWidget(sharp_box)
+
+        # numpy durumu etiketi
+        if not _NUMPY_AVAILABLE:
+            warn = QLabel("⚠ numpy yüklü değil — netlik efekti devre dışı.\n  pip install numpy ile kurun.")
+            warn.setStyleSheet("color: #f85149; font-size: 10px;")
+            warn.setWordWrap(True)
+            layout.addWidget(warn)
+
+        self.blur_slider = self.sharp_slider  # reset_video_settings için alias
+
+
+        # ── 2. Saydamlık (Opaklık) ──
+        self.opacity_effect = QGraphicsOpacityEffect()
+        self.opacity_effect.setOpacity(1.0)
+        def apply_opacity(v):
+            self.video_item.setOpacity(v / 100.0)
+        box, self.opacity_slider = make_slider_row("🫙 Saydamlık", 10, 100, 100, apply_opacity)
+        layout.addWidget(box)
+
+        # ── 3. Yakınlaştırma / Zoom ──
+        def apply_zoom(v):
+            factor = v / 100.0
+            self.video_item.resetTransform()
+            rect = self.video_item.boundingRect()
+            self.video_item.setTransformOriginPoint(rect.width()/2, rect.height()/2)
+            self.video_item.setScale(factor)
+        box, self.zoom_slider = make_slider_row("🔎 Zoom", 50, 300, 100, apply_zoom)
+        layout.addWidget(box)
+
+        # ── 4. Döndürme ──
+        def apply_rotation(v):
+            rect = self.video_item.boundingRect()
+            self.video_item.setTransformOriginPoint(rect.width()/2, rect.height()/2)
+            self.video_item.setRotation(v)
+            self.rotation_angle = v
+        box, self.rotation_slider = make_slider_row("🔄 Döndürme (°)", -180, 180, 0, apply_rotation)
+        layout.addWidget(box)
+
+        # ── 5. Oynatma Hızı ──
+        def apply_speed(v):
+            speed = v / 100.0
+            self.media_player.setPlaybackRate(speed)
+            self.speed_label.setText(f"⚡{speed:.2f}x")
+        box, self.speed_slider = make_slider_row("⚡ Oynatma Hızı (×100)", 25, 400, 100, apply_speed)
+        layout.addWidget(box)
+
+        # ── 6. Ses Seviyesi ──
+        def apply_volume_panel(v):
+            self.audio_output.setVolume(v / 100.0)
+            self.volume_level = v / 100.0
+        box, self.vol_slider_panel = make_slider_row("🔊 Ses Seviyesi", 0, 150, 100, apply_volume_panel)
+        layout.addWidget(box)
+
+        # ── Toggle butonları ──
+        toggle_box = QGroupBox("🎨 Görsel Efektler")
+        tl = QVBoxLayout(toggle_box)
+        tl.setContentsMargins(8, 4, 8, 8)
+        tl.setSpacing(6)
+
+        # ── 7. Gri Ton ──
+        self.grayscale_btn = QPushButton("⬛ Gri Ton")
+        self.grayscale_btn.setCheckable(True)
+        self._grayscale_effect = None
+        def toggle_grayscale(checked):
+            if checked:
+                eff = QGraphicsColorizeEffect()
+                eff.setColor(QColor(128, 128, 128))
+                eff.setStrength(1.0)
+                self._grayscale_effect = eff
+                self.video_item.setGraphicsEffect(eff)
+            else:
+                self.video_item.setGraphicsEffect(None)
+                self._grayscale_effect = None
+        self.grayscale_btn.toggled.connect(toggle_grayscale)
+        tl.addWidget(self.grayscale_btn)
+
+        # ── 8. Renk Tonu (Warm/Cool) ──
+        tint_row = QHBoxLayout()
+        warm_btn = QPushButton("🟠 Sıcak")
+        cool_btn = QPushButton("🔵 Soğuk")
+        normal_tint_btn = QPushButton("⚪ Normal")
+        def set_tint(color):
+            eff = QGraphicsColorizeEffect()
+            eff.setColor(color)
+            eff.setStrength(0.3)
+            self.video_item.setGraphicsEffect(eff)
+        def clear_tint():
+            self.video_item.setGraphicsEffect(None)
+        warm_btn.clicked.connect(lambda: set_tint(QColor(255, 160, 80)))
+        cool_btn.clicked.connect(lambda: set_tint(QColor(80, 160, 255)))
+        normal_tint_btn.clicked.connect(clear_tint)
+        tint_row.addWidget(warm_btn)
+        tint_row.addWidget(cool_btn)
+        tint_row.addWidget(normal_tint_btn)
+        tl.addLayout(tint_row)
+
+        # ── 9. Yatay / Dikey Ayna ──
+        flip_row = QHBoxLayout()
+        self.flip_h = False
+        self.flip_v = False
+        def update_flip():
+            t = QTransform()
+            t.scale(-1 if self.flip_h else 1, -1 if self.flip_v else 1)
+            rect = self.video_item.boundingRect()
+            if self.flip_h:
+                t = QTransform().translate(rect.width(), 0).scale(-1, 1)
+            if self.flip_v:
+                t2 = QTransform().translate(0, rect.height()).scale(1, -1)
+                t = t * t2
+            self.video_item.setTransform(t)
+        flip_h_btn = QPushButton("↔ Yatay Ayna")
+        flip_h_btn.setCheckable(True)
+        flip_v_btn = QPushButton("↕ Dikey Ayna")
+        flip_v_btn.setCheckable(True)
+        def toggle_flip_h(c): self.flip_h = c; update_flip()
+        def toggle_flip_v(c): self.flip_v = c; update_flip()
+        flip_h_btn.toggled.connect(toggle_flip_h)
+        flip_v_btn.toggled.connect(toggle_flip_v)
+        flip_row.addWidget(flip_h_btn)
+        flip_row.addWidget(flip_v_btn)
+        tl.addLayout(flip_row)
+
+        layout.addWidget(toggle_box)
+
+        # ── 10. Renk Yoğunluğu (Colorize Strength) ──
+        self._color_eff = None
+        self._color_target = QColor(255, 100, 100)
+        def apply_colorize(v):
+            if v == 0:
+                self.video_item.setGraphicsEffect(None)
+                self._color_eff = None
+            else:
+                if self._color_eff is None:
+                    self._color_eff = QGraphicsColorizeEffect()
+                    self._color_eff.setColor(self._color_target)
+                    self.video_item.setGraphicsEffect(self._color_eff)
+                self._color_eff.setStrength(v / 100.0)
+        box, self.colorize_slider = make_slider_row("🎨 Renk Yoğunluğu", 0, 100, 0, apply_colorize)
+        layout.addWidget(box)
+
+        # ── 11. Gölge Efekti ──
+        self._shadow_eff = None
+        def apply_shadow(v):
+            if v == 0:
+                self.video_item.setGraphicsEffect(None)
+                self._shadow_eff = None
+            else:
+                if self._shadow_eff is None:
+                    self._shadow_eff = QGraphicsDropShadowEffect()
+                    self._shadow_eff.setColor(QColor(0, 0, 0, 200))
+                    self._shadow_eff.setOffset(0, 0)
+                    self.video_item.setGraphicsEffect(self._shadow_eff)
+                self._shadow_eff.setBlurRadius(v)
+        box, self.shadow_slider = make_slider_row("🌑 Gölge / Vinjyet", 0, 60, 0, apply_shadow)
+        layout.addWidget(box)
+
+        # ── Sıfırla butonu ──
+        layout.addSpacing(8)
+        reset_btn = QPushButton("🔄  Tüm Ayarları Sıfırla")
+        reset_btn.setStyleSheet("""QPushButton { background-color: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1); padding: 10px; border-radius: 8px; font-family: 'Inter'; font-weight: 500; color: #f8fafc; }
+                                   QPushButton:hover { background-color: rgba(239, 68, 68, 0.15); border-color: rgba(239, 68, 68, 0.3); color: #ef4444; }""")
+        reset_btn.clicked.connect(self.reset_video_settings)
+        layout.addWidget(reset_btn)
+        layout.addStretch()
+
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
+        return panel
+
+    def reset_video_settings(self):
+        """Tüm ayarları sıfırla"""
+        self.video_item.setGraphicsEffect(None)
+        self.video_item.setOpacity(1.0)
+        self.video_item.setRotation(0)
+        self.video_item.setScale(1.0)
+        self.video_item.setTransform(QTransform())
+        self.rotation_angle = 0
+        self.media_player.setPlaybackRate(1.0)
+        self.speed_label.setText("⚡1.00x")
+        self.blur_effect = None
+        self._grayscale_effect = None
+        self._color_eff = None
+        self._shadow_eff = None
+        self.flip_h = False
+        self.flip_v = False
+        # Slider'ları sıfırla
+        for sl, default in [
+            (self.blur_slider, 0), (self.opacity_slider, 100),
+            (self.zoom_slider, 100), (self.rotation_slider, 0),
+            (self.speed_slider, 100), (self.colorize_slider, 0),
+            (self.shadow_slider, 0),
+        ]:
+            sl.blockSignals(True)
+            sl.setValue(default)
+            sl.blockSignals(False)
+        self.statusBar().showMessage("Tüm ayarlar sıfırlandı", 2000)
+
+
     def create_menu_bar(self):
         """Menü çubuğunu oluştur"""
         menubar = self.menuBar()
         menubar.setStyleSheet("""
-            QMenuBar { background-color: #161b22; color: #c9d1d9; border-bottom: 1px solid #30363d; }
-            QMenuBar::item { padding: 4px 8px; }
-            QMenuBar::item:selected { background-color: #1f6feb; }
-            QMenu { background-color: #161b22; color: #c9d1d9; border: 1px solid #30363d; }
-            QMenu::item:selected { background-color: #1f6feb; }
+            QMenuBar { background-color: #0f172a; color: #f8fafc; border-bottom: 1px solid rgba(255, 255, 255, 0.1); font-family: 'Inter'; font-size: 12px; }
+            QMenuBar::item { padding: 6px 10px; border-radius: 4px; margin-left: 4px; }
+            QMenuBar::item:selected { background-color: rgba(255, 255, 255, 0.1); }
+            QMenu { background-color: #0f172a; color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.1); font-family: 'Inter'; font-size: 12px; padding: 4px; }
+            QMenu::item { padding: 6px 20px 6px 20px; border-radius: 4px; }
+            QMenu::item:selected { background-color: #6366f1; }
         """)
         
         # Dosya menüsü
@@ -202,6 +601,24 @@ class VideoPlayer(QMainWindow):
         fullscreen_action.setShortcut(QKeySequence("F11"))
         fullscreen_action.triggered.connect(self.toggle_fullscreen)
         view_menu.addAction(fullscreen_action)
+        
+        view_menu.addSeparator()
+        
+        rotate_cw_action = QAction("🔄 Sağa Döndür (Alt+R)", self)
+        rotate_cw_action.setShortcut(QKeySequence("Alt+R"))
+        rotate_cw_action.triggered.connect(lambda: self.rotate_video(90))
+        view_menu.addAction(rotate_cw_action)
+        
+        rotate_ccw_action = QAction("🔄 Sola Döndür (Alt+L)", self)
+        rotate_ccw_action.setShortcut(QKeySequence("Alt+L"))
+        rotate_ccw_action.triggered.connect(lambda: self.rotate_video(-90))
+        view_menu.addAction(rotate_ccw_action)
+        
+        view_menu.addSeparator()
+        
+        video_settings_action = QAction("⚙️ Video Ayarları", self)
+        video_settings_action.triggered.connect(self.show_video_settings)
+        view_menu.addAction(video_settings_action)
         
         view_menu.addSeparator()
         
@@ -258,8 +675,8 @@ class VideoPlayer(QMainWindow):
         controls_panel = QFrame()
         controls_panel.setStyleSheet("""
             QFrame {
-                background-color: #161b22;
-                border-top: 1px solid #30363d;
+                background-color: #0f172a;
+                border-top: 1px solid rgba(255, 255, 255, 0.1);
             }
         """)
         
@@ -292,13 +709,15 @@ class VideoPlayer(QMainWindow):
         self.open_button.clicked.connect(self.open_file)
         self.open_button.setStyleSheet("""
             QPushButton {
-                background-color: #238636;
-                color: white;
-                border: none;
+                background-color: transparent;
+                color: #f8fafc;
+                border: 1px solid rgba(255, 255, 255, 0.2);
+                border-radius: 8px;
                 padding: 8px 16px;
-                font-weight: bold;
+                font-family: 'Inter';
+                font-weight: 600;
             }
-            QPushButton:hover { background-color: #2ea043; }
+            QPushButton:hover { background-color: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.3); }
         """)
         buttons_layout.addWidget(self.open_button)
         
@@ -319,14 +738,13 @@ class VideoPlayer(QMainWindow):
         self.play_button.clicked.connect(self.play_video)
         self.play_button.setStyleSheet("""
             QPushButton {
-                background-color: #1f6feb;
+                background-color: #6366f1;
                 color: white;
                 border: none;
                 border-radius: 20px;
                 font-size: 16px;
-                font-weight: bold;
             }
-            QPushButton:hover { background-color: #388bfd; }
+            QPushButton:hover { background-color: #818cf8; }
         """)
         buttons_layout.addWidget(self.play_button)
         
@@ -431,48 +849,51 @@ class VideoPlayer(QMainWindow):
         """Ana stil sayfasını ayarla"""
         self.setStyleSheet("""
             QMainWindow {
-                background-color: #0d1117;
+                background-color: #020617;
             }
             QPushButton {
-                background-color: #21262d;
-                color: #c9d1d9;
-                border: 1px solid #30363d;
-                border-radius: 6px;
+                background-color: transparent;
+                color: #cbd5e1;
+                border: 1px solid transparent;
+                border-radius: 8px;
                 padding: 6px 12px;
-                font-size: 12px;
+                font-size: 13px;
+                font-family: 'Inter';
             }
             QPushButton:hover {
-                background-color: #30363d;
-                border-color: #8b949e;
+                background-color: rgba(255, 255, 255, 0.1);
+                color: #f8fafc;
+                border-color: rgba(255, 255, 255, 0.2);
             }
             QPushButton:pressed {
-                background-color: #161b22;
+                background-color: rgba(255, 255, 255, 0.05);
             }
             QSlider::groove:horizontal {
-                height: 4px;
-                background: #30363d;
-                border-radius: 2px;
+                height: 6px;
+                background: rgba(255, 255, 255, 0.15);
+                border-radius: 3px;
             }
             QSlider::handle:horizontal {
-                background: #1f6feb;
-                width: 12px;
-                margin: -4px 0;
-                border-radius: 6px;
+                background: #6366f1;
+                width: 16px;
+                margin: -5px 0;
+                border-radius: 8px;
             }
             QSlider::handle:horizontal:hover {
-                background: #388bfd;
-                width: 14px;
+                background: #818cf8;
             }
             QSlider::sub-page:horizontal {
-                background: #1f6feb;
-                border-radius: 2px;
+                background: #6366f1;
+                border-radius: 3px;
             }
             QComboBox {
-                background-color: #21262d;
-                color: #c9d1d9;
-                border: 1px solid #30363d;
-                border-radius: 6px;
-                padding: 5px;
+                background-color: rgba(255, 255, 255, 0.05);
+                color: #f8fafc;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 8px;
+                padding: 6px 12px;
+                font-family: 'Inter';
+                font-size: 12px;
             }
             QComboBox::drop-down {
                 border: none;
@@ -481,11 +902,12 @@ class VideoPlayer(QMainWindow):
                 image: none;
                 border-left: 5px solid transparent;
                 border-right: 5px solid transparent;
-                border-top: 5px solid #c9d1d9;
-                margin-right: 5px;
+                border-top: 5px solid #cbd5e1;
+                margin-right: 8px;
             }
             QLabel {
-                color: #c9d1d9;
+                color: #cbd5e1;
+                font-family: 'Inter';
             }
         """)
         
@@ -604,6 +1026,19 @@ class VideoPlayer(QMainWindow):
         self.audio_output.setMuted(not self.audio_output.isMuted())
         self.volume_button.setText("🔇" if self.audio_output.isMuted() else "🔊")
         
+    def rotate_video(self, angle):
+        """Videoyu döndür"""
+        self.rotation_angle = (self.rotation_angle + angle) % 360
+        
+        # Dönüşüm merkezini ayarla
+        rect = self.video_item.boundingRect()
+        self.video_item.setTransformOriginPoint(rect.width() / 2, rect.height() / 2)
+        self.video_item.setRotation(self.rotation_angle)
+        
+        # Görünümü sığdır
+        self.graphics_view.fitInView(self.video_item, Qt.AspectRatioMode.KeepAspectRatio)
+        self.statusBar().showMessage(f"Döndürüldü: {self.rotation_angle}°", 2000)
+
     def toggle_fullscreen(self):
         """Tam ekran modunu aç/kapa"""
         if self.is_fullscreen:
@@ -765,7 +1200,15 @@ class VideoPlayer(QMainWindow):
         if error_string:
             self.statusBar().showMessage(f"Hata: {error_string}", 5000)
             print(f"Media Player Error: {error_string}")
-            
+
+    def show_video_settings(self):
+        """Video ayarları panelini aç/kapat"""
+        visible = not self.settings_panel.isVisible()
+        self.settings_panel.setVisible(visible)
+        if visible:
+            self.splitter.setSizes([900, 280])
+        self.statusBar().showMessage("Video ayarları " + ("açıldı" if visible else "kapatıldı"), 1500)
+
     def show_about(self):
         """Hakkında penceresini göster"""
         QMessageBox.about(
@@ -781,9 +1224,8 @@ class VideoPlayer(QMainWindow):
             "• Oynatma hızı kontrolü\n"
             "• Tam ekran modu\n"
             "• Kaldığınız yerden devam etme\n\n"
-            "Geliştirilmiş Python ile PyQt6 kullanılarak yapılmıştır."
-        )
-        
+            "Geliştirilmiş Python ile PyQt6 kullanılarak yapılmıştır.")
+
     def show_shortcuts(self):
         """Kısayol penceresini göster"""
         shortcuts_text = """
@@ -796,36 +1238,41 @@ class VideoPlayer(QMainWindow):
         <tr><td><b>Aşağı Ok</b></td><td>Sesi azalt</td></tr>
         <tr><td><b>M</b></td><td>Sesi aç/kapa</td></tr>
         <tr><td><b>F / F11</b></td><td>Tam ekran</td></tr>
+        <tr><td><b>Alt+R</b></td><td>Sağa döndür</td></tr>
+        <tr><td><b>Alt+L</b></td><td>Sola döndür</td></tr>
         <tr><td><b>Ctrl+Sol</b></td><td>Önceki video</td></tr>
         <tr><td><b>Ctrl+Sağ</b></td><td>Sonraki video</td></tr>
         </table>
         """
-        
         msg = QMessageBox(self)
         msg.setWindowTitle("Klavye Kısayolları")
         msg.setTextFormat(Qt.TextFormat.RichText)
         msg.setText(shortcuts_text)
         msg.exec()
-        
+
     def closeEvent(self, event):
         """Pencere kapatıldığında"""
         self.save_current_position()
         self.save_settings()
         event.accept()
-        
+
     def keyPressEvent(self, event):
         """Klavye olaylarını işle"""
         if event.key() == Qt.Key.Key_Escape and self.is_fullscreen:
             self.toggle_fullscreen()
         else:
             super().keyPressEvent(event)
-            
+
     def resizeEvent(self, event):
         """Pencere boyutu değiştiğinde"""
         super().resizeEvent(event)
-        if self.video_item.nativeSize().isValid():
+        if hasattr(self, 'video_item') and self.video_item.nativeSize().isValid():
             self.graphics_view.fitInView(self.video_item, Qt.AspectRatioMode.KeepAspectRatio)
-            
+
+
+
+
+
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     app.setApplicationName("Premium Video Player")

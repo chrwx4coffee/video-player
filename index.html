@@ -6,8 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Premium Video Oynatıcı</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
-        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Syne:wght@400;500;600;700&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
         rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
 </head>
@@ -156,6 +158,16 @@
                         </div>
                         <div class="controls-right">
 
+                            <!-- Rotate -->
+                            <div class="rotate-group">
+                                <button id="rotateCCWBtn" class="control-btn" title="Sola Döndür (Alt+L)">
+                                    <i class="fas fa-rotate-left"></i>
+                                </button>
+                                <button id="rotateCWBtn" class="control-btn" title="Sağa Döndür (Alt+R)">
+                                    <i class="fas fa-rotate-right"></i>
+                                </button>
+                            </div>
+
                             <!-- Speed -->
                             <div class="popup-wrapper">
                                 <button id="speedBtn" class="control-btn" title="Oynatma Hızı">
@@ -174,6 +186,43 @@
                                     <button class="speed-option" data-speed="2.0">2.0x</button>
                                     <button class="speed-option" data-speed="2.5">2.5x</button>
                                     <button class="speed-option" data-speed="3.0">3.0x</button>
+                                </div>
+                            </div>
+
+                            <!-- Settings -->
+                            <div class="popup-wrapper">
+                                <button id="settingsBtn" class="control-btn" title="Video Ayarları">
+                                    <i class="fas fa-sliders"></i>
+                                </button>
+                                <div class="popup-menu settings-menu" id="settingsMenu">
+                                    <div class="popup-label">Görüntü Ayarları</div>
+
+                                    <div class="setting-item">
+                                        <label>Parlaklık</label>
+                                        <input type="range" id="brightnessSlider" min="0" max="200" value="100">
+                                        <span class="setting-val">100%</span>
+                                    </div>
+
+                                    <div class="setting-item">
+                                        <label>Kontrast</label>
+                                        <input type="range" id="contrastSlider" min="0" max="200" value="100">
+                                        <span class="setting-val">100%</span>
+                                    </div>
+
+                                    <div class="setting-item">
+                                        <label>Doygunluk</label>
+                                        <input type="range" id="saturateSlider" min="0" max="200" value="100">
+                                        <span class="setting-val">100%</span>
+                                    </div>
+
+                                    <div class="setting-item">
+                                        <label>Keskinlik</label>
+                                        <input type="range" id="sharpnessSlider" min="0" max="100" value="0">
+                                        <span class="setting-val">0%</span>
+                                    </div>
+
+                                    <div class="popup-divider"></div>
+                                    <button id="resetFiltersBtn" class="btn-reset-filters">Tümünü Sıfırla</button>
                                 </div>
                             </div>
 
@@ -244,6 +293,13 @@
     </div>
 
     <script src="script.js"></script>
+
+    <!-- SVG Filter for Sharpness -->
+    <svg width="0" height="0" style="position:absolute;z-index:-1;">
+        <filter id="sharpnessFilter">
+            <feConvolveMatrix order="3" preserveAlpha="true" kernelMatrix="0 -1 0 -1 5 -1 0 -1 0" />
+        </filter>
+    </svg>
 </body>
 
 </html>

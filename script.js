@@ -3,6 +3,7 @@ const state = {
     playlist: [],
     currentIndex: -1,
     zoom: 1,
+    rotation: 0,
     panX: 0,
     panY: 0,
     isPanning: false,
@@ -17,6 +18,12 @@ const state = {
     savedPositions: JSON.parse(localStorage.getItem('videoPositions') || '{}'),
     controlsTimeout: null,
     lastVolume: 1,
+    filters: {
+        brightness: 100,
+        contrast: 100,
+        saturate: 100,
+        sharpness: 0
+    }
 };
 
 // ─── DOM ──────────────────────────────────────────────────────────────────────
@@ -61,6 +68,17 @@ const resumeYes = document.getElementById('resumeYes');
 const resumeNo = document.getElementById('resumeNo');
 const resumeTime = document.getElementById('resumeTime');
 const loadingSpinner = document.getElementById('loadingSpinner');
+
+// New Controls
+const rotateCWBtn = document.getElementById('rotateCWBtn');
+const rotateCCWBtn = document.getElementById('rotateCCWBtn');
+const settingsBtn = document.getElementById('settingsBtn');
+const settingsMenu = document.getElementById('settingsMenu');
+const brightnessSlider = document.getElementById('brightnessSlider');
+const contrastSlider = document.getElementById('contrastSlider');
+const saturateSlider = document.getElementById('saturateSlider');
+const sharpnessSlider = document.getElementById('sharpnessSlider');
+const resetFiltersBtn = document.getElementById('resetFiltersBtn');
 
 // ─── Toast ────────────────────────────────────────────────────────────────────
 let toastTimer;
@@ -465,12 +483,18 @@ function parseVTT(text) {
     return cues;
 }
 
-// ─── Zoom & Pan ───────────────────────────────────────────────────────────────
+// ─── Zoom & Pan & Rotate ──────────────────────────────────────────────────────
 function applyTransform() {
-    video.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
+    video.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom}) rotate(${state.rotation}deg)`;
     zoomLevelText.textContent = Math.round(state.zoom * 100) + '%';
     zoomHint.classList.toggle('visible', state.zoom > 1);
 }
+
+function rotateCW() { state.rotation = (state.rotation + 90) % 360; applyTransform(); showToast('Döndürüldü: +90°'); }
+function rotateCCW() { state.rotation = (state.rotation - 90 + 360) % 360; applyTransform(); showToast('Döndürüldü: -90°'); }
+
+rotateCWBtn && rotateCWBtn.addEventListener('click', rotateCW);
+rotateCCWBtn && rotateCCWBtn.addEventListener('click', rotateCCW);
 
 function zoomIn() { state.zoom = Math.min(5, state.zoom * 1.2); applyTransform(); }
 function zoomOut() { if (state.zoom > 1) { state.zoom = Math.max(1, state.zoom / 1.2); if (state.zoom <= 1) { state.panX = 0; state.panY = 0; } applyTransform(); } }
@@ -480,12 +504,11 @@ zoomInBtn.addEventListener('click', zoomIn);
 zoomOutBtn.addEventListener('click', zoomOut);
 resetZoomBtn.addEventListener('click', resetZoom);
 
-// Ctrl+Wheel zoom
+// Mouse wheel zoom
 container.addEventListener('wheel', e => {
-    if (e.ctrlKey) {
-        e.preventDefault();
-        e.deltaY < 0 ? zoomIn() : zoomOut();
-    }
+    e.preventDefault();
+    if (e.deltaY < 0) zoomIn();
+    else zoomOut();
 }, { passive: false });
 
 // Pan
@@ -601,13 +624,71 @@ document.addEventListener('keydown', e => {
             if (e.ctrlKey) { e.preventDefault(); zoomOut(); } break;
         case 'Digit0': case 'Numpad0':
             if (e.ctrlKey) { e.preventDefault(); resetZoom(); } break;
+        case 'KeyL': if (e.altKey) { e.preventDefault(); rotateCCW(); } break;
+        case 'KeyR': if (e.altKey) { e.preventDefault(); rotateCW(); } break;
     }
+});
+
+// ─── Video Filters ────────────────────────────────────────────────────────────
+function updateFilters() {
+    const { brightness, contrast, saturate, sharpness } = state.filters;
+    let filterStr = `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturate}%)`;
+
+    // Sharpness trick with SVG filter mix
+    if (sharpness > 0) {
+        // High sharpness values might crash or look bad, keep it subtle
+        filterStr += ` url(#sharpnessFilter)`;
+        // Since feConvolveMatrix is binary (on/off mostly), we don't have a direct "amount" 
+        // but we can adjust contrast/brightness to compensate if needed.
+    }
+
+    video.style.filter = filterStr;
+
+    // Update UI
+    if (brightnessSlider) {
+        brightnessSlider.value = brightness;
+        brightnessSlider.parentElement.querySelector('.setting-val').textContent = brightness + '%';
+    }
+    if (contrastSlider) {
+        contrastSlider.value = contrast;
+        contrastSlider.parentElement.querySelector('.setting-val').textContent = contrast + '%';
+    }
+    if (saturateSlider) {
+        saturateSlider.value = saturate;
+        saturateSlider.parentElement.querySelector('.setting-val').textContent = saturate + '%';
+    }
+    if (sharpnessSlider) {
+        sharpnessSlider.value = sharpness;
+        sharpnessSlider.parentElement.querySelector('.setting-val').textContent = sharpness + '%';
+    }
+}
+
+settingsBtn && settingsBtn.addEventListener('click', e => {
+    settingsMenu.classList.toggle('open');
+    speedMenu.classList.remove('open');
+    subtitleMenu.classList.remove('open');
+    e.stopPropagation();
+});
+
+[brightnessSlider, contrastSlider, saturateSlider, sharpnessSlider].forEach(slider => {
+    slider && slider.addEventListener('input', e => {
+        const id = e.target.id.replace('Slider', '');
+        state.filters[id] = parseInt(e.target.value);
+        updateFilters();
+    });
+});
+
+resetFiltersBtn && resetFiltersBtn.addEventListener('click', () => {
+    state.filters = { brightness: 100, contrast: 100, saturate: 100, sharpness: 0 };
+    updateFilters();
+    showToast('Ayarlar sıfırlandı');
 });
 
 // Close menus on outside click
 document.addEventListener('click', () => {
-    speedMenu.classList.remove('open');
-    subtitleMenu.classList.remove('open');
+    speedMenu && speedMenu.classList.remove('open');
+    subtitleMenu && subtitleMenu.classList.remove('open');
+    settingsMenu && settingsMenu.classList.remove('open');
 });
 
 // ─── Drag & Drop ─────────────────────────────────────────────────────────────
