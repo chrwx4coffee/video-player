@@ -21,8 +21,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QSlider, QFileDialog, QLabel, QGraphicsView, QGraphicsScene,
     QSizePolicy, QComboBox, QMessageBox, QProgressBar, QFrame, QToolTip,
-    QDialog, QSplitter, QScrollArea, QGroupBox
-)
+    QDialog, QSplitter, QScrollArea, QGroupBox, QLineEdit)
 from PyQt6.QtWidgets import (
     QGraphicsEffect, QGraphicsBlurEffect, QGraphicsColorizeEffect,
     QGraphicsOpacityEffect, QGraphicsDropShadowEffect
@@ -193,6 +192,8 @@ class VideoPlayer(QMainWindow):
         self.save_timer.timeout.connect(self.save_current_position)
         self.save_timer.start(30000)  # Her 30 saniyede bir kaydet
         
+        self.setAcceptDrops(True)
+        
     def init_ui(self):
         """Kullanıcı arayüzünü oluştur"""
         # Merkez widget
@@ -218,6 +219,9 @@ class VideoPlayer(QMainWindow):
         self.splitter.setSizes([1200, 300])
 
         main_layout.addWidget(self.splitter, stretch=1)
+
+        # Alt seçim çekmecesi oluştur
+        self.create_drawer_panel()
 
         # Kontrol paneli
         controls_panel = self.create_controls_panel()
@@ -526,6 +530,126 @@ class VideoPlayer(QMainWindow):
         outer.addWidget(scroll)
         return panel
 
+    def create_drawer_panel(self):
+        """Alt kısımda şeffaf playlist / URL drawer ekranı oluştur."""
+        self.drawer_panel = QFrame(self.graphics_view)
+        self.drawer_panel.hide()
+        self.drawer_panel.setStyleSheet("""
+            QFrame {
+                background-color: rgba(15, 23, 42, 0.85);
+                border-top: 1px solid rgba(255, 255, 255, 0.2);
+                border-radius: 12px;
+            }
+            QPushButton {
+                background-color: rgba(255,255,255,0.05);
+                color: white;
+                border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 8px;
+                padding: 6px;
+                text-align: center;
+                font-size: 11px;
+                font-family: 'Inter';
+            }
+            QPushButton:hover {
+                background-color: rgba(255,255,255,0.15);
+            }
+            QLineEdit {
+                background-color: rgba(0,0,0,0.3);
+                color: white;
+                border: 1px solid rgba(255,255,255,0.2);
+                border-radius: 6px;
+                padding: 6px 12px;
+                font-family: 'Inter';
+            }
+        """)
+        
+        main_lyt = QVBoxLayout(self.drawer_panel)
+        
+        # URL Alanı
+        url_layout = QHBoxLayout()
+        self.url_input = QLineEdit()
+        self.url_input.setPlaceholderText("Veya uzaktan URL girin (örn: http://...)")
+        
+        url_btn = QPushButton("Oynat")
+        url_btn.setFixedWidth(80)
+        url_btn.clicked.connect(self.play_url)
+        
+        url_layout.addWidget(self.url_input)
+        url_layout.addWidget(url_btn)
+        main_lyt.addLayout(url_layout)
+        
+        # Liste (Scroll Area)
+        self.drawer_scroll = QScrollArea()
+        self.drawer_scroll.setWidgetResizable(True)
+        self.drawer_scroll.setStyleSheet("background: transparent; border: none;")
+        self.drawer_scroll.setFixedHeight(120)
+        
+        self.drawer_container = QWidget()
+        self.drawer_container.setStyleSheet("background: transparent;")
+        
+        self.drawer_flow_layout = QHBoxLayout(self.drawer_container)
+        self.drawer_flow_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.drawer_flow_layout.setContentsMargins(0, 0, 0, 0)
+        self.drawer_flow_layout.setSpacing(10)
+        
+        self.drawer_scroll.setWidget(self.drawer_container)
+        main_lyt.addWidget(self.drawer_scroll)
+
+    def toggle_drawer(self):
+        if self.drawer_panel.isVisible():
+            self.drawer_panel.hide()
+        else:
+            self.update_drawer_geometry()
+            self.drawer_panel.show()
+
+    def play_url(self):
+        url_str = self.url_input.text().strip()
+        if url_str:
+            self.media_player.setSource(QUrl(url_str))
+            self.play_button.setText("⏸")
+            self.media_player.play()
+            self.statusBar().showMessage(f"URL Yükleniyor: {url_str}")
+            self.setWindowTitle("Premium Video Oynatıcı - URL")
+
+    def update_drawer_playlist(self):
+        while self.drawer_flow_layout.count():
+            item = self.drawer_flow_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+                
+        for i, video_path in enumerate(self.playlist):
+            btn = QPushButton()
+            name = os.path.basename(video_path)
+            if len(name) > 30:
+                name = name[:27] + "..."
+            btn.setText(f"🎬\\n{name}")
+            btn.setFixedWidth(160)
+            btn.setFixedHeight(90)
+            
+            if i == self.current_playlist_index:
+                btn.setStyleSheet("background-color: rgba(99, 102, 241, 0.4); border-color: #818cf8;")
+                
+            def make_loader(index=i):
+                self.load_video_index(index)
+                
+            btn.clicked.connect(make_loader)
+            self.drawer_flow_layout.addWidget(btn)
+
+    def load_video_index(self, index):
+        if 0 <= index < len(self.playlist):
+            self.current_playlist_index = index
+            self.load_video(self.playlist[index])
+            self.update_drawer_playlist()
+
+    def update_drawer_geometry(self):
+        if hasattr(self, 'drawer_panel') and self.drawer_panel.isVisible():
+            w = min(800, self.graphics_view.width() - 40)
+            h = 190
+            x = (self.graphics_view.width() - w) // 2
+            y = self.graphics_view.height() - h - 30
+            self.drawer_panel.setGeometry(int(x), int(y), int(w), int(h))
+
     def reset_video_settings(self):
         """Tüm ayarları sıfırla"""
         self.video_item.setGraphicsEffect(None)
@@ -720,6 +844,12 @@ class VideoPlayer(QMainWindow):
             QPushButton:hover { background-color: rgba(255, 255, 255, 0.1); border-color: rgba(255, 255, 255, 0.3); }
         """)
         buttons_layout.addWidget(self.open_button)
+        
+        # Seçim Ekranı (Drawer) Butonu
+        self.drawer_toggle_btn = QPushButton("📑 Seçim")
+        self.drawer_toggle_btn.clicked.connect(self.toggle_drawer)
+        self.drawer_toggle_btn.setStyleSheet(self.open_button.styleSheet())
+        buttons_layout.addWidget(self.drawer_toggle_btn)
         
         # Önceki video
         self.prev_button = QPushButton("⏮")
@@ -925,6 +1055,7 @@ class VideoPlayer(QMainWindow):
             self.playlist = [file_name]
             self.current_playlist_index = 0
             self.load_video(file_name)
+            self.update_drawer_playlist()
             
     def open_folder(self):
         """Klasördeki tüm videoları aç"""
@@ -947,6 +1078,7 @@ class VideoPlayer(QMainWindow):
                 self.playlist.sort()
                 self.current_playlist_index = 0
                 self.load_video(self.playlist[0])
+                self.update_drawer_playlist()
                 self.statusBar().showMessage(f"{len(self.playlist)} video yüklendi")
                 
     def load_video(self, file_path):
@@ -1268,6 +1400,57 @@ class VideoPlayer(QMainWindow):
         super().resizeEvent(event)
         if hasattr(self, 'video_item') and self.video_item.nativeSize().isValid():
             self.graphics_view.fitInView(self.video_item, Qt.AspectRatioMode.KeepAspectRatio)
+        if hasattr(self, 'update_drawer_geometry'):
+            self.update_drawer_geometry()
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.accept()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        urls = event.mimeData().urls()
+        if not urls:
+            return
+            
+        file_path = urls[0].toLocalFile()
+        if not os.path.isfile(file_path):
+            return
+            
+        video_extensions = {'.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm', '.m4v'}
+        if Path(file_path).suffix.lower() not in video_extensions:
+            self.statusBar().showMessage("Desteklenmeyen dosya formatı!")
+            return
+            
+        folder = os.path.dirname(file_path)
+        self.settings.setValue('last_path', folder)
+        self.playlist = []
+        
+        try:
+            for f in Path(folder).iterdir():
+                if f.suffix.lower() in video_extensions:
+                    self.playlist.append(str(f))
+        except Exception as e:
+            print("Klasör okunamadı:", e)
+            self.playlist = [file_path]
+            
+        if self.playlist:
+            self.playlist.sort()
+            try:
+                self.current_playlist_index = self.playlist.index(file_path)
+            except ValueError:
+                self.current_playlist_index = 0
+                
+            self.load_video(file_path)
+            self.update_drawer_playlist()
+            self.statusBar().showMessage(f"Sürüklendi: Klasördeki {len(self.playlist)} video yüklendi.")
+            
+            # Show the drawer if this is the first drop so they can see it working
+            if not getattr(self, '_drawer_revealed_once', False):
+                self._drawer_revealed_once = True
+                self.drawer_panel.show()
+                self.update_drawer_geometry()
 
 
 
