@@ -45,23 +45,14 @@
 
             <div class="top-bar-sep"></div>
 
-            <button class="top-bar-btn" id="playlistToggle" title="Oynatma Listesi">
-                <i class="fas fa-list"></i>
-                <span class="top-bar-label">Liste</span>
+            <button class="top-bar-btn" id="playlistToggle" title="Önerilen Videolar">
+                <i class="fas fa-film"></i>
+                <span class="top-bar-label">Önerilen</span>
             </button>
         </div>
 
         <!-- Main -->
         <div class="main-area">
-
-            <!-- Playlist -->
-            <div class="playlist-panel" id="playlistPanel">
-                <div class="playlist-header">
-                    <span><i class="fas fa-film"></i> &nbsp;Oynatma Listesi</span>
-                    <span id="playlistCount" style="color:var(--text-faint)">0 video</span>
-                </div>
-                <ul id="playlistList"></ul>
-            </div>
 
             <!-- Video -->
             <div class="video-container" id="videoContainer">
@@ -267,6 +258,26 @@
                 </div>
 
             </div><!-- /video-container -->
+
+            <!-- Recommended Panel (right side, YouTube-style) -->
+            <div class="recommendations-panel" id="playlistPanel">
+                <div class="rec-panel-header">
+                    <div class="rec-panel-title">
+                        <i class="fas fa-tv"></i>
+                        <span>Önerilen Videolar</span>
+                    </div>
+                    <span class="rec-panel-count" id="playlistCount">0 video</span>
+                </div>
+                <div class="rec-panel-empty" id="recEmpty">
+                    <i class="fas fa-folder-open"></i>
+                    <p>Klasör açarak diğer videoları görün</p>
+                    <label for="folderInput" class="rec-open-folder-btn">
+                        <i class="fas fa-folder"></i> Klasör Seç
+                    </label>
+                </div>
+                <ul id="playlistList" class="rec-list"></ul>
+            </div>
+
         </div><!-- /main-area -->
 
         <!-- Status Bar -->

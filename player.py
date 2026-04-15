@@ -612,29 +612,65 @@ class VideoPlayer(QMainWindow):
             self.setWindowTitle("Premium Video Oynatıcı - URL")
 
     def update_drawer_playlist(self):
+        # Mevcut butonları temizle
         while self.drawer_flow_layout.count():
             item = self.drawer_flow_layout.takeAt(0)
             widget = item.widget()
             if widget:
                 widget.deleteLater()
-                
+
+        active_btn = None
         for i, video_path in enumerate(self.playlist):
             btn = QPushButton()
             name = os.path.basename(video_path)
-            if len(name) > 30:
-                name = name[:27] + "..."
-            btn.setText(f"🎬\\n{name}")
-            btn.setFixedWidth(160)
-            btn.setFixedHeight(90)
-            
+            # İsmi kısalt
+            display_name = name if len(name) <= 22 else name[:19] + "..."
+            btn.setText(f"🎬\n{display_name}")
+            btn.setFixedWidth(150)
+            btn.setFixedHeight(80)
+            btn.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(255, 255, 255, 0.05);
+                    color: #cbd5e1;
+                    border: 1px solid rgba(255, 255, 255, 0.1);
+                    border-radius: 8px;
+                    padding: 6px;
+                    text-align: center;
+                    font-size: 11px;
+                    font-family: 'Inter';
+                }
+                QPushButton:hover {
+                    background-color: rgba(255, 255, 255, 0.12);
+                    border-color: rgba(255, 255, 255, 0.25);
+                    color: #f8fafc;
+                }
+            """)
+
             if i == self.current_playlist_index:
-                btn.setStyleSheet("background-color: rgba(99, 102, 241, 0.4); border-color: #818cf8;")
-                
+                btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: rgba(99, 102, 241, 0.35);
+                        color: #818cf8;
+                        border: 1px solid rgba(99, 102, 241, 0.6);
+                        border-radius: 8px;
+                        padding: 6px;
+                        text-align: center;
+                        font-size: 11px;
+                        font-family: 'Inter';
+                        font-weight: bold;
+                    }
+                """)
+                active_btn = btn
+
             def make_loader(index=i):
                 self.load_video_index(index)
-                
+
             btn.clicked.connect(make_loader)
             self.drawer_flow_layout.addWidget(btn)
+
+        # Aktif butona scroll et
+        if active_btn is not None:
+            QTimer.singleShot(50, lambda: self.drawer_scroll.ensureWidgetVisible(active_btn))
 
     def load_video_index(self, index):
         if 0 <= index < len(self.playlist):
@@ -643,12 +679,14 @@ class VideoPlayer(QMainWindow):
             self.update_drawer_playlist()
 
     def update_drawer_geometry(self):
-        if hasattr(self, 'drawer_panel') and self.drawer_panel.isVisible():
-            w = min(800, self.graphics_view.width() - 40)
-            h = 190
-            x = (self.graphics_view.width() - w) // 2
-            y = self.graphics_view.height() - h - 30
-            self.drawer_panel.setGeometry(int(x), int(y), int(w), int(h))
+        """Drawer panel'in konumunu ve boyutunu güncelle"""
+        if not hasattr(self, 'drawer_panel'):
+            return
+        w = min(900, self.graphics_view.width() - 40)
+        h = 190
+        x = (self.graphics_view.width() - w) // 2
+        y = self.graphics_view.height() - h - 20
+        self.drawer_panel.setGeometry(int(x), int(y), int(w), int(h))
 
     def reset_video_settings(self):
         """Tüm ayarları sıfırla"""
@@ -846,7 +884,7 @@ class VideoPlayer(QMainWindow):
         buttons_layout.addWidget(self.open_button)
         
         # Seçim Ekranı (Drawer) Butonu
-        self.drawer_toggle_btn = QPushButton("📑 Seçim")
+        self.drawer_toggle_btn = QPushButton("🎥 Önerilen")
         self.drawer_toggle_btn.clicked.connect(self.toggle_drawer)
         self.drawer_toggle_btn.setStyleSheet(self.open_button.styleSheet())
         buttons_layout.addWidget(self.drawer_toggle_btn)
@@ -1042,20 +1080,18 @@ class VideoPlayer(QMainWindow):
         """)
         
     def open_file(self):
-        """Video dosyası aç"""
+        """Video dosyası aç — aynı klasördeki tüm videoları da yükle"""
         file_name, _ = QFileDialog.getOpenFileName(
             self,
             "Video Seç",
             self.settings.value('last_path', ''),
-            "Video Dosyaları (*.mp4 *.avi *.mkv *.mov *.wmv *.flv *.webm *.m4v);;Tüm Dosyalar (*.*)"
+            "Video Dosyaları (*.mp4 *.avi *.mkv *.mov *.wmv *.flv *.webm *.m4v *.ts *.m2ts *.ogv);;Tüm Dosyalar (*.*)"
         )
-        
+
         if file_name:
             self.settings.setValue('last_path', os.path.dirname(file_name))
-            self.playlist = [file_name]
-            self.current_playlist_index = 0
-            self.load_video(file_name)
-            self.update_drawer_playlist()
+            # Aynı klasördeki tüm videoları bul
+            self._load_folder_playlist(os.path.dirname(file_name), selected_file=file_name)
             
     def open_folder(self):
         """Klasördeki tüm videoları aç"""
@@ -1064,22 +1100,47 @@ class VideoPlayer(QMainWindow):
             "Video Klasörü Seç",
             self.settings.value('last_path', '')
         )
-        
+
         if folder:
             self.settings.setValue('last_path', folder)
-            video_extensions = {'.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm', '.m4v'}
-            self.playlist = []
-            
-            for file in Path(folder).iterdir():
-                if file.suffix.lower() in video_extensions:
-                    self.playlist.append(str(file))
-                    
-            if self.playlist:
-                self.playlist.sort()
-                self.current_playlist_index = 0
-                self.load_video(self.playlist[0])
-                self.update_drawer_playlist()
-                self.statusBar().showMessage(f"{len(self.playlist)} video yüklendi")
+            self._load_folder_playlist(folder)
+
+    def _load_folder_playlist(self, folder, selected_file=None):
+        """Verilen klasördeki video dosyalarını playlist'e yükle.
+
+        selected_file verilirse o dosya aktif olur; verilmezse ilk dosya seçilir.
+        """
+        video_extensions = {'.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv',
+                            '.webm', '.m4v', '.ts', '.m2ts', '.ogv', '.3gp', '.wmv'}
+        files = sorted(
+            str(f) for f in Path(folder).iterdir()
+            if f.is_file() and f.suffix.lower() in video_extensions
+        )
+
+        if not files:
+            self.statusBar().showMessage("Klasörde video bulunamadı")
+            return
+
+        self.playlist = files
+
+        # Aktif index belirle
+        if selected_file and selected_file in files:
+            self.current_playlist_index = files.index(selected_file)
+        else:
+            self.current_playlist_index = 0
+
+        self.load_video(self.playlist[self.current_playlist_index])
+        self.update_drawer_playlist()
+
+        # Drawer'ı otomatik aç
+        self.update_drawer_geometry()
+        self.drawer_panel.show()
+
+        n = len(files)
+        idx = self.current_playlist_index + 1
+        self.statusBar().showMessage(
+            f"{n} video yüklendi — {idx}/{n}: {os.path.basename(self.playlist[self.current_playlist_index])}"
+        )
                 
     def load_video(self, file_path):
         """Videoyu yükle"""
@@ -1118,12 +1179,14 @@ class VideoPlayer(QMainWindow):
         if self.playlist and self.current_playlist_index > 0:
             self.current_playlist_index -= 1
             self.load_video(self.playlist[self.current_playlist_index])
-            
+            self.update_drawer_playlist()
+
     def next_video(self):
         """Sonraki videoya geç"""
         if self.playlist and self.current_playlist_index < len(self.playlist) - 1:
             self.current_playlist_index += 1
             self.load_video(self.playlist[self.current_playlist_index])
+            self.update_drawer_playlist()
             
     def seek_relative(self, seconds):
         """Belirtilen saniye kadar ileri/geri sar"""
@@ -1413,44 +1476,19 @@ class VideoPlayer(QMainWindow):
         urls = event.mimeData().urls()
         if not urls:
             return
-            
+
         file_path = urls[0].toLocalFile()
         if not os.path.isfile(file_path):
             return
-            
-        video_extensions = {'.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm', '.m4v'}
+
+        video_extensions = {'.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv',
+                            '.webm', '.m4v', '.ts', '.m2ts', '.ogv', '.3gp'}
         if Path(file_path).suffix.lower() not in video_extensions:
             self.statusBar().showMessage("Desteklenmeyen dosya formatı!")
             return
-            
-        folder = os.path.dirname(file_path)
-        self.settings.setValue('last_path', folder)
-        self.playlist = []
-        
-        try:
-            for f in Path(folder).iterdir():
-                if f.suffix.lower() in video_extensions:
-                    self.playlist.append(str(f))
-        except Exception as e:
-            print("Klasör okunamadı:", e)
-            self.playlist = [file_path]
-            
-        if self.playlist:
-            self.playlist.sort()
-            try:
-                self.current_playlist_index = self.playlist.index(file_path)
-            except ValueError:
-                self.current_playlist_index = 0
-                
-            self.load_video(file_path)
-            self.update_drawer_playlist()
-            self.statusBar().showMessage(f"Sürüklendi: Klasördeki {len(self.playlist)} video yüklendi.")
-            
-            # Show the drawer if this is the first drop so they can see it working
-            if not getattr(self, '_drawer_revealed_once', False):
-                self._drawer_revealed_once = True
-                self.drawer_panel.show()
-                self.update_drawer_geometry()
+
+        self.settings.setValue('last_path', os.path.dirname(file_path))
+        self._load_folder_playlist(os.path.dirname(file_path), selected_file=file_path)
 
 
 

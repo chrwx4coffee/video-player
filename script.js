@@ -317,25 +317,87 @@ muteBtn.addEventListener('wheel', e => {
     showToast(`Ses: ${Math.round(video.volume * 100)}%`);
 }, { passive: false });
 
-// ─── Playlist ─────────────────────────────────────────────────────────────────
+// ─── Playlist / Recommendations ───────────────────────────────────────────────
+const recEmpty = document.getElementById('recEmpty');
+
+function formatFileSize(bytes) {
+    if (!bytes || bytes === 0) return '';
+    const mb = bytes / (1024 * 1024);
+    if (mb >= 1000) return (mb / 1024).toFixed(1) + ' GB';
+    if (mb >= 1) return mb.toFixed(1) + ' MB';
+    return Math.round(bytes / 1024) + ' KB';
+}
+
 function renderPlaylist() {
     playlistList.innerHTML = '';
+    const count = state.playlist.length;
+
+    // Update count badge
+    const countEl = document.getElementById('playlistCount');
+    if (countEl) countEl.textContent = count + ' video';
+
+    // Show/hide empty state
+    if (recEmpty) recEmpty.style.display = count === 0 ? 'flex' : 'none';
+
+    // Auto-open panel when we have a playlist
+    if (count > 0 && playlistPanel) {
+        playlistPanel.classList.add('open');
+        if (playlistToggle) playlistToggle.classList.add('active');
+    }
+
     state.playlist.forEach((file, i) => {
+        const isActive = i === state.currentIndex;
         const li = document.createElement('li');
-        li.className = 'playlist-item' + (i === state.currentIndex ? ' active' : '');
-        li.innerHTML = `<i class="fas fa-film"></i><span>${file.name}</span>`;
+        li.className = 'rec-item' + (isActive ? ' active' : '');
+        li.innerHTML = `
+            <div class="rec-item-thumb">
+                ${isActive
+                    ? `<div class="rec-anim"><span></span><span></span><span></span></div>`
+                    : `<i class="fas fa-film"></i>`
+                }
+            </div>
+            <div class="rec-item-info">
+                <div class="rec-item-name" title="${file.name}">${file.name}</div>
+                <div class="rec-item-meta">${formatFileSize(file.size)}</div>
+            </div>
+            <span class="rec-item-idx">${i + 1}</span>
+        `;
         li.addEventListener('click', () => {
             state.currentIndex = i;
             loadVideo(file);
         });
         playlistList.appendChild(li);
     });
+
+    // Scroll active item into view
+    setTimeout(() => {
+        const activeEl = playlistList.querySelector('.rec-item.active');
+        if (activeEl) activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 100);
 }
 
 function updatePlaylistHighlight() {
-    document.querySelectorAll('.playlist-item').forEach((el, i) => {
-        el.classList.toggle('active', i === state.currentIndex);
+    const items = playlistList.querySelectorAll('.rec-item');
+    items.forEach((el, i) => {
+        const isActive = i === state.currentIndex;
+        el.classList.toggle('active', isActive);
+
+        // Update thumb content (anim vs icon)
+        const thumb = el.querySelector('.rec-item-thumb');
+        if (thumb) {
+            thumb.innerHTML = isActive
+                ? `<div class="rec-anim"><span></span><span></span><span></span></div>`
+                : `<i class="fas fa-film"></i>`;
+        }
+
+        // Show/hide index number
+        const idxEl = el.querySelector('.rec-item-idx');
+        if (idxEl) idxEl.style.display = isActive ? 'none' : '';
     });
+
+    // Scroll into view
+    const activeEl = playlistList.querySelector('.rec-item.active');
+    if (activeEl) activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 playlistToggle && playlistToggle.addEventListener('click', () => {
