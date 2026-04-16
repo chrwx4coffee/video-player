@@ -611,72 +611,113 @@ class VideoPlayer(QMainWindow):
             self.statusBar().showMessage(f"URL Yükleniyor: {url_str}")
             self.setWindowTitle("Premium Video Oynatıcı - URL")
 
+    # ── Stil sabitleri (drawer butonları) ──────────────────────────────────────
+    _DRAWER_BTN_STYLE_NORMAL = """
+        QPushButton {
+            background-color: rgba(255, 255, 255, 0.05);
+            color: #cbd5e1;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 6px;
+            text-align: center;
+            font-size: 11px;
+            font-family: 'Inter';
+        }
+        QPushButton:hover {
+            background-color: rgba(255, 255, 255, 0.14);
+            border-color: rgba(255, 255, 255, 0.28);
+            color: #f8fafc;
+        }
+    """
+    _DRAWER_BTN_STYLE_ACTIVE = """
+        QPushButton {
+            background-color: rgba(99, 102, 241, 0.35);
+            color: #818cf8;
+            border: 1px solid rgba(99, 102, 241, 0.65);
+            border-radius: 8px;
+            padding: 6px;
+            text-align: center;
+            font-size: 11px;
+            font-family: 'Inter';
+            font-weight: bold;
+        }
+        QPushButton:hover {
+            background-color: rgba(99, 102, 241, 0.5);
+        }
+    """
+
     def update_drawer_playlist(self):
+        """Playlist butonlarını yeniden oluştur (sadece playlist değiştiğinde)."""
         # Mevcut butonları temizle
+        self._drawer_buttons = []
         while self.drawer_flow_layout.count():
             item = self.drawer_flow_layout.takeAt(0)
             widget = item.widget()
             if widget:
+                widget.setParent(None)  # deleteLater değil — anında kaldır
                 widget.deleteLater()
 
-        active_btn = None
         for i, video_path in enumerate(self.playlist):
+            is_active = (i == self.current_playlist_index)
             btn = QPushButton()
             name = os.path.basename(video_path)
-            # İsmi kısalt
             display_name = name if len(name) <= 22 else name[:19] + "..."
             btn.setText(f"🎬\n{display_name}")
             btn.setFixedWidth(150)
             btn.setFixedHeight(80)
-            btn.setStyleSheet("""
-                QPushButton {
-                    background-color: rgba(255, 255, 255, 0.05);
-                    color: #cbd5e1;
-                    border: 1px solid rgba(255, 255, 255, 0.1);
-                    border-radius: 8px;
-                    padding: 6px;
-                    text-align: center;
-                    font-size: 11px;
-                    font-family: 'Inter';
-                }
-                QPushButton:hover {
-                    background-color: rgba(255, 255, 255, 0.12);
-                    border-color: rgba(255, 255, 255, 0.25);
-                    color: #f8fafc;
-                }
-            """)
+            btn.setToolTip(name)  # Tam adı tooltip'e koy
+            btn.setStyleSheet(
+                self._DRAWER_BTN_STYLE_ACTIVE if is_active
+                else self._DRAWER_BTN_STYLE_NORMAL
+            )
 
-            if i == self.current_playlist_index:
-                btn.setStyleSheet("""
-                    QPushButton {
-                        background-color: rgba(99, 102, 241, 0.35);
-                        color: #818cf8;
-                        border: 1px solid rgba(99, 102, 241, 0.6);
-                        border-radius: 8px;
-                        padding: 6px;
-                        text-align: center;
-                        font-size: 11px;
-                        font-family: 'Inter';
-                        font-weight: bold;
-                    }
-                """)
-                active_btn = btn
-
-            def make_loader(index=i):
+            def make_loader(checked=False, index=i):
                 self.load_video_index(index)
 
             btn.clicked.connect(make_loader)
             self.drawer_flow_layout.addWidget(btn)
+            self._drawer_buttons.append(btn)
+
+        # Aktif butona scroll et — güvenli gecikme ile
+        active_idx = self.current_playlist_index
+        def _scroll_to_active():
+            if 0 <= active_idx < len(self._drawer_buttons):
+                try:
+                    self.drawer_scroll.ensureWidgetVisible(self._drawer_buttons[active_idx])
+                except Exception:
+                    pass
+        QTimer.singleShot(80, _scroll_to_active)
+
+    def _refresh_drawer_highlight(self):
+        """Sadece aktif butonun stilini güncelle — butonları yeniden oluşturma."""
+        if not hasattr(self, '_drawer_buttons'):
+            return
+        for i, btn in enumerate(self._drawer_buttons):
+            try:
+                is_active = (i == self.current_playlist_index)
+                btn.setStyleSheet(
+                    self._DRAWER_BTN_STYLE_ACTIVE if is_active
+                    else self._DRAWER_BTN_STYLE_NORMAL
+                )
+            except Exception:
+                pass  # Widget silinmişse atla
 
         # Aktif butona scroll et
-        if active_btn is not None:
-            QTimer.singleShot(50, lambda: self.drawer_scroll.ensureWidgetVisible(active_btn))
+        active_idx = self.current_playlist_index
+        def _scroll():
+            if hasattr(self, '_drawer_buttons') and 0 <= active_idx < len(self._drawer_buttons):
+                try:
+                    self.drawer_scroll.ensureWidgetVisible(self._drawer_buttons[active_idx])
+                except Exception:
+                    pass
+        QTimer.singleShot(50, _scroll)
 
     def load_video_index(self, index):
+        """Playlist'ten video yükle — sadece highlight güncelle, butonları yeniden oluşturma."""
         if 0 <= index < len(self.playlist):
             self.current_playlist_index = index
             self.load_video(self.playlist[index])
-            self.update_drawer_playlist()
+            self._refresh_drawer_highlight()  # Hızlı: sadece stilleri güncelle
 
     def update_drawer_geometry(self):
         """Drawer panel'in konumunu ve boyutunu güncelle"""
@@ -1003,15 +1044,27 @@ class VideoPlayer(QMainWindow):
             'Down': lambda: self.volume_slider.setValue(max(0, self.volume_slider.value() - 5)),
             'M': self.toggle_mute,
             'F': self.toggle_fullscreen,
+            'R': self._resume_from_saved,  # Kaydığınız yerden devam
             'Ctrl+Left': self.previous_video,
             'Ctrl+Right': self.next_video,
             'Ctrl+Up': lambda: self.set_playback_speed(self.media_player.playbackRate() + 0.1),
             'Ctrl+Down': lambda: self.set_playback_speed(max(0.25, self.media_player.playbackRate() - 0.1)),
         }
-        
+
         for key, func in shortcuts.items():
             shortcut = QShortcut(QKeySequence(key), self)
             shortcut.activated.connect(func)
+
+    def _resume_from_saved(self):
+        """[R] tuşu: kaydedilmiş konumdan devam et"""
+        pos = getattr(self, '_pending_resume_position', 0)
+        if pos > 0:
+            self.media_player.setPosition(pos)
+            self._pending_resume_position = 0
+            mins, secs = pos // 60000, (pos % 60000) // 1000
+            self.statusBar().showMessage(f"⏩ {mins}:{secs:02d} konumuna atlandı", 3000)
+        else:
+            self.statusBar().showMessage("Kaydedilmiş konum yok", 2000)
             
     def setup_stylesheet(self):
         """Ana stil sayfasını ayarla"""
@@ -1143,27 +1196,39 @@ class VideoPlayer(QMainWindow):
         )
                 
     def load_video(self, file_path):
-        """Videoyu yükle"""
+        """Videoyu yükle — bloklayan dialog YOK"""
+        self.media_player.stop()
         self.media_player.setSource(QUrl.fromLocalFile(file_path))
         self.play_button.setText("⏸")
         self.media_player.play()
         self.set_volume(self.volume_slider.value())
-        self.graphics_view.reset_zoom()
-        
-        # Kaydedilmiş konumu yükle
+
+        # Zoom sıfırla — video item hazır olmayabilir, güvenli guard ile
+        try:
+            items = self.scene.items()
+            if items:
+                self.graphics_view.fitInView(items[0], Qt.AspectRatioMode.KeepAspectRatio)
+            self.graphics_view.zoom_factor = 1.0
+        except Exception:
+            pass
+
+        # Kaydedilmiş konum — bloklayan dialog OLMADAN, status bar bildirimi ile
         saved_position = self.settings.value(f'position_{file_path}', 0, type=int)
-        if saved_position > 5000:  # 5 saniyeden fazla ise
-            reply = QMessageBox.question(
-                self,
-                "Devam Et",
-                f"Bu videoyu {saved_position//1000} saniye önce izlemiştiniz. Kaldığınız yerden devam etmek ister misiniz?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        self._pending_resume_position = 0
+        if saved_position > 5000:
+            self._pending_resume_position = saved_position
+            mins = saved_position // 60000
+            secs = (saved_position % 60000) // 1000
+            self.statusBar().showMessage(
+                f"▶ Oynatılıyor: {os.path.basename(file_path)}  |  "
+                f"💡 {mins}:{secs:02d} konumundan devam etmek için [R] tuşuna basın"
             )
-            if reply == QMessageBox.StandardButton.Yes:
-                self.media_player.setPosition(saved_position)
-                
-        self.setWindowTitle(f"Premium Video Oynatıcı - {os.path.basename(file_path)}")
-        self.statusBar().showMessage(f"Oynatılıyor: {os.path.basename(file_path)}")
+        else:
+            self._pending_resume_position = 0
+            self.setWindowTitle(f"Premium Video Oynatıcı - {os.path.basename(file_path)}")
+            self.statusBar().showMessage(f"▶ Oynatılıyor: {os.path.basename(file_path)}")
+
+        self.setWindowTitle(f"Premier — {os.path.basename(file_path)}")
         
     def play_video(self):
         """Videoyu oynat/duraklat"""
@@ -1179,14 +1244,14 @@ class VideoPlayer(QMainWindow):
         if self.playlist and self.current_playlist_index > 0:
             self.current_playlist_index -= 1
             self.load_video(self.playlist[self.current_playlist_index])
-            self.update_drawer_playlist()
+            self._refresh_drawer_highlight()
 
     def next_video(self):
         """Sonraki videoya geç"""
         if self.playlist and self.current_playlist_index < len(self.playlist) - 1:
             self.current_playlist_index += 1
             self.load_video(self.playlist[self.current_playlist_index])
-            self.update_drawer_playlist()
+            self._refresh_drawer_highlight()
             
     def seek_relative(self, seconds):
         """Belirtilen saniye kadar ileri/geri sar"""
