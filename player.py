@@ -130,6 +130,37 @@ class CustomGraphicsView(QGraphicsView):
         self.zoom_factor = 1.0
         self.fitInView(self.scene().items()[0], Qt.AspectRatioMode.KeepAspectRatio)
 
+from PyQt6.QtCore import QThread, pyqtSignal
+
+class ThumbnailWorker(QThread):
+    thumbnail_ready = pyqtSignal(int, bytes)
+
+    def __init__(self, playlist, parent=None):
+        super().__init__(parent)
+        self.playlist = playlist
+        self._is_cancelled = False
+
+    def cancel(self):
+        self._is_cancelled = True
+
+    def run(self):
+        for i, video_path in enumerate(self.playlist):
+            if self._is_cancelled:
+                break
+            try:
+                # 2. saniyeden 1 frame al (-ss 00:00:02), genişliği 160px olacak şekilde boyutlandır
+                cmd = [
+                    "ffmpeg", "-y", "-ss", "00:00:02", "-i", video_path,
+                    "-vframes", "1", "-q:v", "2", "-vf", "scale=160:-1",
+                    "-f", "image2pipe", "-vcodec", "mjpeg", "-"
+                ]
+                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                stdout_data, _ = proc.communicate()
+                if stdout_data and not self._is_cancelled:
+                    self.thumbnail_ready.emit(i, stdout_data)
+            except Exception as e:
+                print(f"Thumbnail error for {video_path}: {e}")
+
 class VideoPlayer(QMainWindow):
     """Ana video oynatıcı sınıfı"""
     
@@ -648,6 +679,12 @@ class VideoPlayer(QMainWindow):
 
     def update_drawer_playlist(self):
         """Playlist butonlarını yeniden oluştur (sadece playlist değiştiğinde)."""
+        # Eski çalışanı durdur
+        if getattr(self, '_thumbnail_worker', None):
+            self._thumbnail_worker.cancel()
+            self._thumbnail_worker.deleteLater()
+            self._thumbnail_worker = None
+
         # Mevcut butonları temizle
         self._drawer_buttons = []
         while self.drawer_flow_layout.count():
@@ -687,6 +724,29 @@ class VideoPlayer(QMainWindow):
                 except Exception:
                     pass
         QTimer.singleShot(80, _scroll_to_active)
+
+        # Arka planda küçük resimleri oluştur
+        self._thumbnail_worker = ThumbnailWorker(self.playlist, self)
+        self._thumbnail_worker.thumbnail_ready.connect(self._on_thumbnail_ready)
+        self._thumbnail_worker.start()
+
+    def _on_thumbnail_ready(self, index, data):
+        """Arka plandan gelen küçük resmi butona uygula"""
+        if not hasattr(self, '_drawer_buttons') or index >= len(self._drawer_buttons):
+            return
+        
+        from PyQt6.QtCore import QSize
+        from PyQt6.QtGui import QPixmap, QIcon
+        
+        pixmap = QPixmap()
+        if pixmap.loadFromData(data):
+            icon = QIcon(pixmap)
+            btn = self._drawer_buttons[index]
+            btn.setIcon(icon)
+            btn.setIconSize(QSize(130, 70))
+            # Text içindeki ikon alanını kaldır
+            new_text = btn.text().replace("🎬\n", "")
+            btn.setText(new_text)
 
     def _refresh_drawer_highlight(self):
         """Sadece aktif butonun stilini güncelle — butonları yeniden oluşturma."""
