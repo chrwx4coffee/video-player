@@ -2,7 +2,7 @@ import os
 from functools import partial
 from PyQt6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QScrollArea, QWidget,
-    QLabel, QComboBox, QMessageBox, QMenu
+    QLabel, QComboBox, QMessageBox, QMenu, QToolButton
 )
 from PyQt6.QtCore import Qt, QTimer, QUrl, QSize
 from PyQt6.QtGui import QIcon, QPixmap, QAction, QKeySequence
@@ -94,7 +94,7 @@ class PlayerUIMixin:
             self.setWindowTitle("Premium Video Oynatıcı - URL")
 
     _DRAWER_BTN_STYLE_NORMAL = """
-        QPushButton {
+        QToolButton {
             background-color: rgba(255, 255, 255, 0.05);
             color: #cbd5e1;
             border: 1px solid rgba(255, 255, 255, 0.1);
@@ -104,14 +104,14 @@ class PlayerUIMixin:
             font-size: 11px;
             font-family: 'Inter';
         }
-        QPushButton:hover {
+        QToolButton:hover {
             background-color: rgba(255, 255, 255, 0.14);
             border-color: rgba(255, 255, 255, 0.28);
             color: #f8fafc;
         }
     """
     _DRAWER_BTN_STYLE_ACTIVE = """
-        QPushButton {
+        QToolButton {
             background-color: rgba(99, 102, 241, 0.35);
             color: #818cf8;
             border: 1px solid rgba(99, 102, 241, 0.65);
@@ -122,7 +122,7 @@ class PlayerUIMixin:
             font-family: 'Inter';
             font-weight: bold;
         }
-        QPushButton:hover {
+        QToolButton:hover {
             background-color: rgba(99, 102, 241, 0.5);
         }
     """
@@ -143,12 +143,13 @@ class PlayerUIMixin:
 
         for i, video_path in enumerate(self.playlist):
             is_active = (i == self.current_playlist_index)
-            btn = QPushButton()
+            btn = QToolButton()
+            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
             name = os.path.basename(video_path)
             display_name = name if len(name) <= 22 else name[:19] + "..."
             btn.setText(f"🎬\n{display_name}")
             btn.setFixedWidth(150)
-            btn.setFixedHeight(80)
+            btn.setFixedHeight(105)
             btn.setToolTip(name)
             btn.setStyleSheet(
                 self._DRAWER_BTN_STYLE_ACTIVE if is_active
