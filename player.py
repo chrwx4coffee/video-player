@@ -324,16 +324,15 @@ class VideoPlayer(PlayerUIMixin, PlayerSettingsMixin, QMainWindow):
         self.statusBar().showMessage(f"Ses cihazı değiştirildi", 2000)
         
     def show_speed_menu(self, event):
-        menu = self.speed_label.parent().contextMenu()
-        if not menu:
+        if not hasattr(self, '_speed_menu'):
             from PyQt6.QtWidgets import QMenu
-            menu = QMenu()
-            speeds = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]
             from functools import partial
+            self._speed_menu = QMenu(self)
+            speeds = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]
             for speed in speeds:
-                action = menu.addAction(f"{speed}x")
+                action = self._speed_menu.addAction(f"{speed}x")
                 action.triggered.connect(partial(self.set_playback_speed, speed))
-        menu.exec(self.speed_label.mapToGlobal(event.pos()))
+        self._speed_menu.exec(self.speed_label.mapToGlobal(event.pos()))
         
     def save_current_position(self):
         if self.media_player.source().isLocalFile():
