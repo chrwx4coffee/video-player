@@ -170,7 +170,28 @@ class VideoPlayer(PlayerUIMixin, PlayerSettingsMixin, QMainWindow):
         self.statusBar().showMessage(
             f"{n} video yüklendi — {idx}/{n}: {os.path.basename(self.playlist[self.current_playlist_index])}"
         )
-                
+        
+    def go_to_parent_directory(self):
+        if not self.playlist or self.current_playlist_index < 0:
+            last_path = self.settings.value('last_path', '')
+            if last_path and os.path.exists(last_path):
+                current_dir = last_path
+            else:
+                current_dir = os.path.expanduser('~')
+        else:
+            current_dir = os.path.dirname(self.playlist[self.current_playlist_index])
+        
+        parent_dir = os.path.dirname(current_dir)
+        if parent_dir and os.path.exists(parent_dir) and parent_dir != current_dir:
+            self._load_folder_playlist(parent_dir)
+
+    def go_to_subdirectory(self, index):
+        if index <= 0:
+            return
+        path = self.sub_dir_combo.itemData(index)
+        if path and os.path.exists(path):
+            self._load_folder_playlist(path)
+
     def load_video(self, file_path):
         self.media_player.stop()
         self.media_player.setSource(QUrl.fromLocalFile(file_path))

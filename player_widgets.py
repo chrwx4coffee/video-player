@@ -102,9 +102,15 @@ class ThumbnailWorker(QThread):
         super().__init__(parent)
         self.playlist = playlist
         self._is_cancelled = False
+        self._proc = None
 
     def cancel(self):
         self._is_cancelled = True
+        if self._proc:
+            try:
+                self._proc.terminate()
+            except Exception:
+                pass
 
     def run(self):
         for i, video_path in enumerate(self.playlist):
@@ -116,9 +122,12 @@ class ThumbnailWorker(QThread):
                     "-vframes", "1", "-q:v", "2", "-vf", "scale=160:-1",
                     "-f", "image2pipe", "-vcodec", "mjpeg", "-"
                 ]
-                proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-                stdout_data, _ = proc.communicate()
+                self._proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                stdout_data, _ = self._proc.communicate()
                 if stdout_data and not self._is_cancelled:
                     self.thumbnail_ready.emit(i, stdout_data)
             except Exception as e:
-                print(f"Thumbnail error for {video_path}: {e}")
+                if not self._is_cancelled:
+                    print(f"Thumbnail error for {video_path}: {e}")
+            finally:
+                self._proc = None

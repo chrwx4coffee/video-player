@@ -59,6 +59,51 @@ class PlayerUIMixin:
         url_layout.addWidget(self.url_input)
         url_layout.addWidget(url_btn)
         main_lyt.addLayout(url_layout)
+
+        # Dizin Gezinme Alanı (Üst/Alt Dizin)
+        dir_layout = QHBoxLayout()
+        self.up_dir_btn = QPushButton("📁 Üst Dizin")
+        self.up_dir_btn.clicked.connect(self.go_to_parent_directory)
+        self.up_dir_btn.setFixedWidth(120)
+        self.up_dir_btn.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255, 255, 255, 0.05);
+                color: #cbd5e1;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 8px;
+                padding: 6px;
+                font-size: 11px;
+                font-family: 'Inter';
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.15);
+                border-color: rgba(255, 255, 255, 0.25);
+                color: #f8fafc;
+            }
+        """)
+
+        self.sub_dir_combo = QComboBox()
+        self.sub_dir_combo.setMinimumWidth(250)
+        self.sub_dir_combo.setStyleSheet("""
+            QComboBox {
+                background-color: rgba(255, 255, 255, 0.05);
+                color: #f8fafc;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 8px;
+                padding: 6px 12px;
+                font-family: 'Inter';
+                font-size: 11px;
+            }
+            QComboBox::drop-down { border: none; }
+            QComboBox::down-arrow { image: none; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 5px solid #cbd5e1; margin-right: 8px; }
+        """)
+        self.sub_dir_combo.addItem("📂 Alt Dizin Seç...")
+        self.sub_dir_combo.currentIndexChanged.connect(self.go_to_subdirectory)
+
+        dir_layout.addWidget(self.up_dir_btn)
+        dir_layout.addWidget(self.sub_dir_combo)
+        dir_layout.addStretch()
+        main_lyt.addLayout(dir_layout)
         
         # Liste (Scroll Area)
         self.drawer_scroll = QScrollArea()
@@ -130,7 +175,6 @@ class PlayerUIMixin:
     def update_drawer_playlist(self):
         if getattr(self, '_thumbnail_worker', None):
             self._thumbnail_worker.cancel()
-            self._thumbnail_worker.deleteLater()
             self._thumbnail_worker = None
 
         self._drawer_buttons = []
@@ -140,6 +184,9 @@ class PlayerUIMixin:
             if widget:
                 widget.setParent(None)
                 widget.deleteLater()
+
+        # Alt dizinleri listele
+        self.update_subdirectories_dropdown()
 
         for i, video_path in enumerate(self.playlist):
             is_active = (i == self.current_playlist_index)
@@ -174,6 +221,7 @@ class PlayerUIMixin:
 
         self._thumbnail_worker = ThumbnailWorker(self.playlist, self)
         self._thumbnail_worker.thumbnail_ready.connect(self._on_thumbnail_ready)
+        self._thumbnail_worker.finished.connect(self._thumbnail_worker.deleteLater)
         self._thumbnail_worker.start()
 
     def _on_thumbnail_ready(self, index, data):
@@ -217,11 +265,54 @@ class PlayerUIMixin:
             self.load_video(self.playlist[index])
             self._refresh_drawer_highlight()
 
+    def _has_videos(self, directory):
+        video_extensions = {'.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv',
+                            '.webm', '.m4v', '.ts', '.m2ts', '.ogv', '.3gp'}
+        try:
+            for entry in os.scandir(directory):
+                if entry.is_file():
+                    ext = os.path.splitext(entry.name)[1].lower()
+                    if ext in video_extensions:
+                        return True
+        except Exception:
+            pass
+        return False
+
+    def update_subdirectories_dropdown(self):
+        if not hasattr(self, 'sub_dir_combo'):
+            return
+            
+        current_dir = None
+        if self.playlist and 0 <= self.current_playlist_index < len(self.playlist):
+            current_dir = os.path.dirname(self.playlist[self.current_playlist_index])
+        else:
+            last_path = self.settings.value('last_path', '')
+            if last_path and os.path.exists(last_path):
+                current_dir = last_path
+
+        subdirs = []
+        if current_dir:
+            try:
+                for entry in os.scandir(current_dir):
+                    if entry.is_dir() and not entry.name.startswith('.'):
+                        if self._has_videos(entry.path):
+                            subdirs.append((entry.name, entry.path))
+            except Exception:
+                pass
+
+        self.sub_dir_combo.blockSignals(True)
+        self.sub_dir_combo.clear()
+        self.sub_dir_combo.addItem("📂 Alt Dizin Seç...", None)
+        for name, path in sorted(subdirs):
+            self.sub_dir_combo.addItem(name, path)
+        self.sub_dir_combo.blockSignals(False)
+        self.sub_dir_combo.setEnabled(len(subdirs) > 0)
+
     def update_drawer_geometry(self):
         if not hasattr(self, 'drawer_panel'):
             return
         w = min(900, self.graphics_view.width() - 40)
-        h = 190
+        h = 235
         x = (self.graphics_view.width() - w) // 2
         y = self.graphics_view.height() - h - 20
         self.drawer_panel.setGeometry(int(x), int(y), int(w), int(h))
