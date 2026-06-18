@@ -382,6 +382,42 @@ class PlayerUIMixin:
         self.next_button = QPushButton("⏭")
         self.next_button.clicked.connect(self.next_video)
         buttons_layout.addWidget(self.next_button)
+
+        self.loop_button = QPushButton("🔁")
+        self.loop_button.setToolTip("Oynatma Listesi Tekrarı: Kapalı")
+        self.loop_button.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                color: #cbd5e1;
+                border: 1px solid transparent;
+                border-radius: 8px;
+                padding: 6px;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.1);
+            }
+        """)
+        self.loop_button.clicked.connect(self.toggle_loop_mode)
+        buttons_layout.addWidget(self.loop_button)
+
+        self.screenshot_btn = QPushButton("📸")
+        self.screenshot_btn.setToolTip("Ekran Görüntüsü Al (Ctrl+S)")
+        self.screenshot_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                color: #cbd5e1;
+                border: 1px solid transparent;
+                border-radius: 8px;
+                padding: 6px;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.1);
+            }
+        """)
+        self.screenshot_btn.clicked.connect(self.take_screenshot)
+        buttons_layout.addWidget(self.screenshot_btn)
         
         buttons_layout.addSpacing(10)
         
@@ -401,6 +437,12 @@ class PlayerUIMixin:
         self.audio_combo.setMinimumWidth(200)
         self.audio_combo.currentIndexChanged.connect(self.change_audio_device)
         buttons_layout.addWidget(self.audio_combo)
+
+        self.audio_track_combo = QComboBox()
+        self.audio_track_combo.setMinimumWidth(120)
+        self.audio_track_combo.addItem("Ses İzi Yok", -1)
+        self.audio_track_combo.currentIndexChanged.connect(self.change_audio_track)
+        buttons_layout.addWidget(self.audio_track_combo)
         
         self.subtitle_combo = QComboBox()
         self.subtitle_combo.setMinimumWidth(150)
@@ -567,6 +609,8 @@ class PlayerUIMixin:
             'Ctrl+Right': self.next_video,
             'Ctrl+Up': lambda: self.set_playback_speed(self.media_player.playbackRate() + 0.1),
             'Ctrl+Down': lambda: self.set_playback_speed(max(0.25, self.media_player.playbackRate() - 0.1)),
+            'Ctrl+S': self.take_screenshot,
+            'L': self.toggle_loop_mode,
         }
 
         from PyQt6.QtGui import QShortcut

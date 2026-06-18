@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QGroupBox, QSlider
+    QScrollArea, QGroupBox, QSlider, QLineEdit, QListWidget
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QTransform, QPainter
@@ -294,6 +294,82 @@ class PlayerSettingsMixin:
                 self._shadow_eff.setBlurRadius(v)
         box, self.shadow_slider = make_slider_row("🌑 Gölge / Vinjyet", 0, 60, 0, apply_shadow)
         layout.addWidget(box)
+
+        # 12. Zaman İmleri (Bookmarks)
+        bookmark_box = QGroupBox("📌 Zaman İmleri")
+        bml = QVBoxLayout(bookmark_box)
+        bml.setContentsMargins(8, 4, 8, 8)
+        bml.setSpacing(6)
+        
+        add_row = QHBoxLayout()
+        self.bookmark_input = QLineEdit()
+        self.bookmark_input.setPlaceholderText("İsim girin...")
+        self.bookmark_input.setStyleSheet("""
+            QLineEdit {
+                background-color: rgba(0,0,0,0.3);
+                color: white;
+                border: 1px solid rgba(255,255,255,0.1);
+                border-radius: 6px;
+                padding: 4px 8px;
+                font-family: 'Inter';
+                font-size: 11px;
+            }
+        """)
+        
+        add_btn = QPushButton("Ekle")
+        add_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6366f1;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 4px 8px;
+                font-family: 'Inter';
+                font-size: 11px;
+                font-weight: bold;
+            }
+            QPushButton:hover { background-color: #818cf8; }
+        """)
+        add_btn.clicked.connect(self.add_bookmark)
+        add_row.addWidget(self.bookmark_input)
+        add_row.addWidget(add_btn)
+        bml.addLayout(add_row)
+        
+        self.bookmark_list = QListWidget()
+        self.bookmark_list.setFixedHeight(120)
+        self.bookmark_list.setStyleSheet("""
+            QListWidget {
+                background-color: rgba(0, 0, 0, 0.2);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 6px;
+                color: #cbd5e1;
+                font-family: 'Inter';
+                font-size: 11px;
+            }
+            QListWidget::item { padding: 4px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+            QListWidget::item:hover { background-color: rgba(255,255,255,0.05); color: white; }
+            QListWidget::item:selected { background-color: rgba(99, 102, 241, 0.3); color: #818cf8; font-weight: bold; }
+        """)
+        self.bookmark_list.itemDoubleClicked.connect(self.jump_to_bookmark)
+        bml.addWidget(self.bookmark_list)
+        
+        remove_btn = QPushButton("Seçileni Sil")
+        remove_btn.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(239, 68, 68, 0.1);
+                color: #ef4444;
+                border: 1px solid rgba(239, 68, 68, 0.2);
+                border-radius: 6px;
+                padding: 4px;
+                font-family: 'Inter';
+                font-size: 11px;
+            }
+            QPushButton:hover { background-color: rgba(239, 68, 68, 0.2); }
+        """)
+        remove_btn.clicked.connect(self.remove_bookmark)
+        bml.addWidget(remove_btn)
+        
+        layout.addWidget(bookmark_box)
 
         # Sıfırla butonu
         layout.addSpacing(8)
