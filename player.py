@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QSplitter, QFileDialog, QGraphicsScene, QApplication
+    QMainWindow, QWidget, QVBoxLayout, QSplitter, QFileDialog, QGraphicsScene, QApplication, QLabel
 )
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput, QMediaDevices, QMediaMetaData
 from PyQt6.QtMultimediaWidgets import QGraphicsVideoItem
