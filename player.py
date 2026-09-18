@@ -2,18 +2,20 @@ import os
 from pathlib import Path
 
 from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QSplitter, QFileDialog, QGraphicsScene, QApplication, QLabel
+    QMainWindow, QWidget, QVBoxLayout, QSplitter, QFileDialog, QGraphicsScene, QApplication, QLabel,
+    QGraphicsPixmapItem
 )
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput, QMediaDevices, QMediaMetaData
 from PyQt6.QtMultimediaWidgets import QGraphicsVideoItem
 from PyQt6.QtCore import Qt, QUrl, QRectF, QTimer, QSettings
+from PyQt6.QtGui import QPixmap, QTransform
 
 from player_widgets import CustomGraphicsView
 from player_settings import PlayerSettingsMixin
 from player_ui import PlayerUIMixin
 
 class VideoPlayer(PlayerUIMixin, PlayerSettingsMixin, QMainWindow):
-    """Ana video oynatıcı sınıfı"""
+    """Ana video ve resim oynatıcı/görüntüleyici sınıfı"""
     
     def __init__(self):
         super().__init__()
@@ -24,6 +26,8 @@ class VideoPlayer(PlayerUIMixin, PlayerSettingsMixin, QMainWindow):
         # Ayarlar
         self.settings = QSettings('VideoPlayer', 'Settings')
         self.load_settings()
+        self.show_images = bool(self.settings.value('show_images', False, type=bool))
+        self.is_image_mode = False
         
         # Media Player
         self.media_player = QMediaPlayer(self)
@@ -32,10 +36,14 @@ class VideoPlayer(PlayerUIMixin, PlayerSettingsMixin, QMainWindow):
         self.audio_output.setVolume(self.volume_level)
         self.media_player.setAudioOutput(self.audio_output)
         
-        # Video item
-        self.video_item = QGraphicsVideoItem()
+        # Scene & Items (Video + Resim)
         self.scene = QGraphicsScene(self)
+        self.video_item = QGraphicsVideoItem()
+        self.image_item = QGraphicsPixmapItem()
         self.scene.addItem(self.video_item)
+        self.scene.addItem(self.image_item)
+        self.image_item.hide()
+        
         self.graphics_view = CustomGraphicsView(self.scene)
         self.media_player.setVideoOutput(self.video_item)
         
@@ -81,7 +89,6 @@ class VideoPlayer(PlayerUIMixin, PlayerSettingsMixin, QMainWindow):
         
     def init_ui(self):
         """Kullanıcı arayüzünü oluştur"""
-        # Merkez widget
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout()
@@ -117,25 +124,65 @@ class VideoPlayer(PlayerUIMixin, PlayerSettingsMixin, QMainWindow):
 
         central_widget.setLayout(main_layout)
 
+    def is_image_file(self, path):
+        if not path:
+            return False
+        ext = os.path.splitext(path)[1].lower()
+        return ext in {'.png', '.jpg', '.jpeg', '.bmp', '.webp', '.gif', '.tiff', '.tif', '.svg', '.jfif', '.avif'}
+
+    def is_video_file(self, path):
+        if not path:
+            return False
+        ext = os.path.splitext(path)[1].lower()
+        return ext in {'.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.ts', '.m2ts', '.ogv', '.3gp'}
+
+    def toggle_show_images(self, checked):
+        self.show_images = checked
+        self.settings.setValue('show_images', self.show_images)
+        if hasattr(self, 'show_images_btn'):
+            self.show_images_btn.blockSignals(True)
+            self.show_images_btn.setChecked(checked)
+            self.show_images_btn.blockSignals(False)
+        if hasattr(self, 'show_images_action'):
+            self.show_images_action.blockSignals(True)
+            self.show_images_action.setChecked(checked)
+            self.show_images_action.blockSignals(False)
+
+        current_dir = None
+        current_file = None
+        if self.playlist and 0 <= self.current_playlist_index < len(self.playlist):
+            current_file = self.playlist[self.current_playlist_index]
+            current_dir = os.path.dirname(current_file)
+        else:
+            last_path = self.settings.value('last_path', '')
+            if last_path and os.path.exists(last_path):
+                current_dir = last_path if os.path.isdir(last_path) else os.path.dirname(last_path)
+
+        if current_dir:
+            self._load_folder_playlist(current_dir, selected_file=current_file)
+        else:
+            self.update_drawer_playlist()
+
     def open_file(self):
-        """Video dosyası aç — aynı klasördeki tüm videoları da yükle"""
+        """Medya dosyası aç — aynı klasördeki tüm medyaları da yükle"""
         file_name, _ = QFileDialog.getOpenFileName(
             self,
-            "Video Seç",
+            "Medya Seç (Video veya Resim)",
             self.settings.value('last_path', ''),
-            "Video Dosyaları (*.mp4 *.avi *.mkv *.mov *.wmv *.flv *.webm *.m4v *.ts *.m2ts *.ogv);;Tüm Dosyalar (*.*)"
+            "Tüm Desteklenen Medyalar (*.mp4 *.avi *.mkv *.mov *.wmv *.flv *.webm *.m4v *.ts *.m2ts *.ogv *.png *.jpg *.jpeg *.bmp *.webp *.gif *.tiff *.svg *.jfif *.avif);;Video Dosyaları (*.mp4 *.avi *.mkv *.mov *.wmv *.flv *.webm *.m4v *.ts *.m2ts *.ogv);;Resim Dosyaları (*.png *.jpg *.jpeg *.bmp *.webp *.gif *.tiff *.svg *.jfif *.avif);;Tüm Dosyalar (*.*)"
         )
 
         if file_name:
+            if self.is_image_file(file_name) and not self.show_images:
+                self.toggle_show_images(True)
             self.settings.setValue('last_path', os.path.dirname(file_name))
-            # Aynı klasördeki tüm videoları bul
             self._load_folder_playlist(os.path.dirname(file_name), selected_file=file_name)
             
     def open_folder(self):
-        """Klasördeki tüm videoları aç"""
+        """Klasördeki tüm medyaları aç"""
         folder = QFileDialog.getExistingDirectory(
             self,
-            "Video Klasörü Seç",
+            "Medya Klasörü Seç",
             self.settings.value('last_path', '')
         )
 
@@ -145,14 +192,20 @@ class VideoPlayer(PlayerUIMixin, PlayerSettingsMixin, QMainWindow):
 
     def _load_folder_playlist(self, folder, selected_file=None):
         video_extensions = {'.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv',
-                            '.webm', '.m4v', '.ts', '.m2ts', '.ogv', '.3gp', '.wmv'}
+                            '.webm', '.m4v', '.ts', '.m2ts', '.ogv', '.3gp'}
+        image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.webp', '.gif',
+                            '.tiff', '.tif', '.svg', '.jfif', '.avif'}
+        valid_extensions = set(video_extensions)
+        if self.show_images:
+            valid_extensions.update(image_extensions)
+
         files = sorted(
             str(f) for f in Path(folder).iterdir()
-            if f.is_file() and f.suffix.lower() in video_extensions
+            if f.is_file() and f.suffix.lower() in valid_extensions
         )
 
         if not files:
-            self.statusBar().showMessage("Klasörde video bulunamadı")
+            self.statusBar().showMessage("Klasörde oynatılacak medya bulunamadı")
             return
 
         self.playlist = files
@@ -170,8 +223,10 @@ class VideoPlayer(PlayerUIMixin, PlayerSettingsMixin, QMainWindow):
 
         n = len(files)
         idx = self.current_playlist_index + 1
+        is_img = self.is_image_file(self.playlist[self.current_playlist_index])
+        type_str = "Resim" if is_img else "Video"
         self.statusBar().showMessage(
-            f"{n} video yüklendi — {idx}/{n}: {os.path.basename(self.playlist[self.current_playlist_index])}"
+            f"{n} medya yüklendi — {idx}/{n} ({type_str}): {os.path.basename(self.playlist[self.current_playlist_index])}"
         )
         
     def go_to_parent_directory(self):
@@ -195,20 +250,64 @@ class VideoPlayer(PlayerUIMixin, PlayerSettingsMixin, QMainWindow):
         if path and os.path.exists(path):
             self._load_folder_playlist(path)
 
+    def update_scene_and_view_bounds(self, item):
+        if not item:
+            return
+        rect = item.boundingRect()
+        if rect.isValid() and rect.width() > 0 and rect.height() > 0:
+            bounds = item.mapToScene(rect).boundingRect()
+            if bounds.isValid() and bounds.width() > 0 and bounds.height() > 0:
+                self.scene.setSceneRect(bounds)
+                self.graphics_view.fitInView(bounds, Qt.AspectRatioMode.KeepAspectRatio)
+                self.graphics_view.centerOn(item)
+
     def load_video(self, file_path):
+        # Dosya geçişinde döndürme ve zoom odağını sıfırla, koordinat kaymasını engelle
+        self.rotation_angle = 0
+        self.graphics_view.setTransform(QTransform())
+        self.graphics_view.zoom_factor = 1.0
+
+        if self.is_image_file(file_path):
+            self.is_image_mode = True
+            self.media_player.stop()
+            self.video_item.hide()
+            
+            pixmap = QPixmap(file_path)
+            if not pixmap.isNull():
+                w, h = pixmap.width(), pixmap.height()
+                self.image_item.setPixmap(pixmap)
+                self.image_item.setPos(0, 0)
+                self.image_item.setTransformOriginPoint(w / 2.0, h / 2.0)
+                self.image_item.setRotation(0)
+                self.image_item.show()
+                self.update_scene_and_view_bounds(self.image_item)
+            
+            self.play_button.setText("🖼️")
+            self.position_slider.setValue(0)
+            self.position_slider.setRange(0, 0)
+            self.time_label.setText(f"{pixmap.width()}x{pixmap.height()} Resim")
+            self.setWindowTitle(f"Premier — [Resim] {os.path.basename(file_path)}")
+            self.statusBar().showMessage(
+                f"🖼️ {os.path.basename(file_path)} ({pixmap.width()}x{pixmap.height()}) — Fare tekerleğiyle yakınlaştırıp inceleyebilirsiniz"
+            )
+            return
+
+        self.is_image_mode = False
+        self.image_item.hide()
+        self.video_item.show()
+        self.video_item.setPos(0, 0)
+        self.video_item.setRotation(0)
         self.media_player.stop()
         self.media_player.setSource(QUrl.fromLocalFile(file_path))
         self.play_button.setText("⏸")
         self.media_player.play()
         self.set_volume(self.volume_slider.value())
 
-        try:
-            items = self.scene.items()
-            if items:
-                self.graphics_view.fitInView(items[0], Qt.AspectRatioMode.KeepAspectRatio)
-            self.graphics_view.zoom_factor = 1.0
-        except Exception:
-            pass
+        if self.video_item.nativeSize().isValid() and self.video_item.nativeSize().width() > 0:
+            sz = self.video_item.nativeSize()
+            self.video_item.setSize(sz)
+            self.video_item.setTransformOriginPoint(sz.width() / 2.0, sz.height() / 2.0)
+            self.update_scene_and_view_bounds(self.video_item)
 
         saved_position = self.settings.value(f'position_{file_path}', 0, type=int)
         self._pending_resume_position = 0
@@ -229,6 +328,10 @@ class VideoPlayer(PlayerUIMixin, PlayerSettingsMixin, QMainWindow):
         self.load_bookmarks(file_path)
         
     def play_video(self):
+        if getattr(self, 'is_image_mode', False):
+            if self.playlist and self.current_playlist_index < len(self.playlist) - 1:
+                self.next_video()
+            return
         if self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
             self.media_player.pause()
             self.play_button.setText("▶")
@@ -278,10 +381,13 @@ class VideoPlayer(PlayerUIMixin, PlayerSettingsMixin, QMainWindow):
         
     def rotate_video(self, angle):
         self.rotation_angle = (self.rotation_angle + angle) % 360
-        rect = self.video_item.boundingRect()
-        self.video_item.setTransformOriginPoint(rect.width() / 2, rect.height() / 2)
-        self.video_item.setRotation(self.rotation_angle)
-        self.graphics_view.fitInView(self.video_item, Qt.AspectRatioMode.KeepAspectRatio)
+        target_item = self.image_item if getattr(self, 'is_image_mode', False) else self.video_item
+        if target_item:
+            rect = target_item.boundingRect()
+            if rect.isValid() and rect.width() > 0 and rect.height() > 0:
+                target_item.setTransformOriginPoint(rect.width() / 2.0, rect.height() / 2.0)
+                target_item.setRotation(self.rotation_angle)
+                self.update_scene_and_view_bounds(target_item)
         self.statusBar().showMessage(f"Döndürüldü: {self.rotation_angle}°", 2000)
 
     def toggle_fullscreen(self):
@@ -387,10 +493,12 @@ class VideoPlayer(PlayerUIMixin, PlayerSettingsMixin, QMainWindow):
         self.settings.setValue('geometry', self.saveGeometry())
         
     def video_size_changed(self, size):
-        if size.isValid():
+        if not getattr(self, 'is_image_mode', False) and size.isValid() and size.width() > 0 and size.height() > 0:
             self.video_item.setSize(size)
-            self.scene.setSceneRect(QRectF(0, 0, size.width(), size.height()))
-            self.graphics_view.fitInView(self.video_item, Qt.AspectRatioMode.KeepAspectRatio)
+            self.video_item.setPos(0, 0)
+            self.video_item.setTransformOriginPoint(size.width() / 2.0, size.height() / 2.0)
+            self.video_item.setRotation(self.rotation_angle)
+            self.update_scene_and_view_bounds(self.video_item)
             
     def position_changed(self, position):
         if not self.is_slider_pressed:
@@ -404,7 +512,8 @@ class VideoPlayer(PlayerUIMixin, PlayerSettingsMixin, QMainWindow):
         if state == QMediaPlayer.PlaybackState.PlayingState:
             self.play_button.setText("⏸")
         else:
-            self.play_button.setText("▶")
+            if not getattr(self, 'is_image_mode', False):
+                self.play_button.setText("▶")
             
     def slider_pressed(self):
         self.is_slider_pressed = True
@@ -435,6 +544,8 @@ class VideoPlayer(PlayerUIMixin, PlayerSettingsMixin, QMainWindow):
             print(f"Media Player Error: {error_string}")
 
     def closeEvent(self, event):
+        if hasattr(self, 'preview_worker'):
+            self.preview_worker.stop()
         self.save_current_position()
         self.save_settings()
         event.accept()
@@ -447,9 +558,16 @@ class VideoPlayer(PlayerUIMixin, PlayerSettingsMixin, QMainWindow):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if hasattr(self, 'video_item') and self.video_item.nativeSize().isValid():
-            from PyQt6.QtGui import QTransform
-            self.graphics_view.fitInView(self.video_item, Qt.AspectRatioMode.KeepAspectRatio)
+        target_item = self.image_item if getattr(self, 'is_image_mode', False) else self.video_item
+        if hasattr(self, 'graphics_view') and target_item:
+            try:
+                rect = target_item.boundingRect()
+                if rect.isValid() and rect.width() > 0 and rect.height() > 0:
+                    bounds = target_item.mapToScene(rect).boundingRect()
+                    self.graphics_view.fitInView(bounds, Qt.AspectRatioMode.KeepAspectRatio)
+                    self.graphics_view.centerOn(target_item)
+            except Exception:
+                pass
         if hasattr(self, 'update_drawer_geometry'):
             self.update_drawer_geometry()
 
@@ -468,9 +586,9 @@ class VideoPlayer(PlayerUIMixin, PlayerSettingsMixin, QMainWindow):
         if not os.path.isfile(file_path):
             return
 
-        video_extensions = {'.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv',
-                            '.webm', '.m4v', '.ts', '.m2ts', '.ogv', '.3gp'}
-        if Path(file_path).suffix.lower() not in video_extensions:
+        if self.is_image_file(file_path) and not self.show_images:
+            self.toggle_show_images(True)
+        elif not self.is_video_file(file_path) and not self.is_image_file(file_path):
             self.statusBar().showMessage("Desteklenmeyen dosya formatı!")
             return
 
@@ -579,8 +697,9 @@ class VideoPlayer(PlayerUIMixin, PlayerSettingsMixin, QMainWindow):
                 self.statusBar().showMessage(f"Ses izi değiştirildi: {self.audio_track_combo.currentText()}", 2000)
 
     def take_screenshot(self):
-        if not self.media_player.source().isValid():
-            self.statusBar().showMessage("Ekran görüntüsü alınacak yüklü video yok!", 2000)
+        is_img = getattr(self, 'is_image_mode', False)
+        if not is_img and not self.media_player.source().isValid():
+            self.statusBar().showMessage("Ekran görüntüsü alınacak açık video veya resim yok!", 2000)
             return
 
         drawer_was_visible = False
@@ -597,23 +716,23 @@ class VideoPlayer(PlayerUIMixin, PlayerSettingsMixin, QMainWindow):
             if not pictures_dir.exists():
                 pictures_dir = Path.home() / "Pictures"
             if not pictures_dir.exists():
-                video_url = self.media_player.source().toLocalFile()
-                if video_url and os.path.exists(video_url):
-                    pictures_dir = Path(os.path.dirname(video_url))
-                else:
-                    pictures_dir = Path.home()
+                pictures_dir = Path.home()
             
-            video_name = "video"
-            video_file = self.media_player.source().toLocalFile()
-            if video_file:
-                video_name = Path(video_file).stem
-            
-            pos_ms = self.media_player.position()
-            pos_sec = pos_ms // 1000
-            mins = pos_sec // 60
-            secs = pos_sec % 60
-            
-            filename = f"Screenshot_{video_name}_{mins:02d}m{secs:02d}s.png"
+            media_name = "media"
+            if self.playlist and 0 <= self.current_playlist_index < len(self.playlist):
+                media_name = Path(self.playlist[self.current_playlist_index]).stem
+            elif self.media_player.source().isLocalFile():
+                media_name = Path(self.media_player.source().toLocalFile()).stem
+
+            if is_img:
+                filename = f"Capture_{media_name}.png"
+            else:
+                pos_ms = self.media_player.position()
+                pos_sec = pos_ms // 1000
+                mins = pos_sec // 60
+                secs = pos_sec % 60
+                filename = f"Screenshot_{media_name}_{mins:02d}m{secs:02d}s.png"
+
             filename = "".join(c for c in filename if c.isalnum() or c in "._- ")
             save_path = pictures_dir / filename
             

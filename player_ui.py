@@ -2,12 +2,12 @@ import os
 from functools import partial
 from PyQt6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QScrollArea, QWidget,
-    QLabel, QComboBox, QMessageBox, QMenu, QToolButton
+    QLabel, QComboBox, QMessageBox, QMenu, QToolButton, QCheckBox
 )
 from PyQt6.QtCore import Qt, QTimer, QUrl, QSize
 from PyQt6.QtGui import QIcon, QPixmap, QAction, QKeySequence
 
-from player_widgets import JumpSlider, ThumbnailWorker
+from player_widgets import JumpSlider, ThumbnailWorker, VideoPreviewTooltipWidget, VideoPreviewWorker, HorizontalScrollArea
 
 class PlayerUIMixin:
     """VideoPlayer için UI bileşenlerini oluşturan Mixin (Drawer, Kontroller, Menü)"""
@@ -18,7 +18,7 @@ class PlayerUIMixin:
         self.drawer_panel.hide()
         self.drawer_panel.setStyleSheet("""
             QFrame {
-                background-color: rgba(15, 23, 42, 0.85);
+                background-color: rgba(15, 23, 42, 0.88);
                 border-top: 1px solid rgba(255, 255, 255, 0.2);
                 border-radius: 12px;
             }
@@ -34,6 +34,12 @@ class PlayerUIMixin:
             }
             QPushButton:hover {
                 background-color: rgba(255,255,255,0.15);
+            }
+            QPushButton:checked {
+                background-color: rgba(99, 102, 241, 0.35);
+                border-color: rgba(99, 102, 241, 0.7);
+                color: #818cf8;
+                font-weight: bold;
             }
             QLineEdit {
                 background-color: rgba(0,0,0,0.3);
@@ -60,11 +66,11 @@ class PlayerUIMixin:
         url_layout.addWidget(url_btn)
         main_lyt.addLayout(url_layout)
 
-        # Dizin Gezinme Alanı (Üst/Alt Dizin)
+        # Dizin Gezinme Alanı (Üst/Alt Dizin ve Resimleri Göster Butonu)
         dir_layout = QHBoxLayout()
         self.up_dir_btn = QPushButton("📁 Üst Dizin")
         self.up_dir_btn.clicked.connect(self.go_to_parent_directory)
-        self.up_dir_btn.setFixedWidth(120)
+        self.up_dir_btn.setFixedWidth(110)
         self.up_dir_btn.setStyleSheet("""
             QPushButton {
                 background-color: rgba(255, 255, 255, 0.05);
@@ -83,7 +89,7 @@ class PlayerUIMixin:
         """)
 
         self.sub_dir_combo = QComboBox()
-        self.sub_dir_combo.setMinimumWidth(250)
+        self.sub_dir_combo.setMinimumWidth(220)
         self.sub_dir_combo.setStyleSheet("""
             QComboBox {
                 background-color: rgba(255, 255, 255, 0.05);
@@ -100,16 +106,63 @@ class PlayerUIMixin:
         self.sub_dir_combo.addItem("📂 Alt Dizin Seç...")
         self.sub_dir_combo.currentIndexChanged.connect(self.go_to_subdirectory)
 
+        # Resimleri de Göster Toggle Butonu
+        self.show_images_btn = QPushButton("🖼️ Resimleri Göster")
+        self.show_images_btn.setCheckable(True)
+        self.show_images_btn.setChecked(getattr(self, 'show_images', False))
+        self.show_images_btn.toggled.connect(self.toggle_show_images)
+        self.show_images_btn.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255, 255, 255, 0.05);
+                color: #cbd5e1;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 8px;
+                padding: 6px 12px;
+                font-size: 11px;
+                font-family: 'Inter';
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.15);
+                color: #f8fafc;
+            }
+            QPushButton:checked {
+                background-color: rgba(99, 102, 241, 0.35);
+                border-color: rgba(99, 102, 241, 0.8);
+                color: #a5b4fc;
+                font-weight: bold;
+            }
+        """)
+
         dir_layout.addWidget(self.up_dir_btn)
         dir_layout.addWidget(self.sub_dir_combo)
+        dir_layout.addWidget(self.show_images_btn)
         dir_layout.addStretch()
         main_lyt.addLayout(dir_layout)
         
-        # Liste (Scroll Area)
-        self.drawer_scroll = QScrollArea()
+        # Liste (Scroll Area - Yatay Kaydırma Destekli)
+        self.drawer_scroll = HorizontalScrollArea()
         self.drawer_scroll.setWidgetResizable(True)
-        self.drawer_scroll.setStyleSheet("background: transparent; border: none;")
-        self.drawer_scroll.setFixedHeight(120)
+        self.drawer_scroll.setStyleSheet("""
+            QScrollArea { background: transparent; border: none; }
+            QScrollBar:horizontal {
+                height: 5px;
+                background: rgba(255, 255, 255, 0.05);
+                border-radius: 2px;
+                margin: 0px 20px;
+            }
+            QScrollBar::handle:horizontal {
+                background: rgba(99, 102, 241, 0.45);
+                border-radius: 2px;
+                min-width: 25px;
+            }
+            QScrollBar::handle:horizontal:hover {
+                background: rgba(99, 102, 241, 0.8);
+            }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                width: 0px;
+            }
+        """)
+        self.drawer_scroll.setFixedHeight(125)
         
         self.drawer_container = QWidget()
         self.drawer_container.setStyleSheet("background: transparent;")
@@ -188,16 +241,19 @@ class PlayerUIMixin:
         # Alt dizinleri listele
         self.update_subdirectories_dropdown()
 
-        for i, video_path in enumerate(self.playlist):
+        for i, media_path in enumerate(self.playlist):
             is_active = (i == self.current_playlist_index)
             btn = QToolButton()
             btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
-            name = os.path.basename(video_path)
+            name = os.path.basename(media_path)
             display_name = name if len(name) <= 22 else name[:19] + "..."
-            btn.setText(f"🎬\n{display_name}")
+            
+            is_img = self.is_image_file(media_path)
+            icon_tag = "🖼️" if is_img else "🎬"
+            btn.setText(f"{icon_tag}\n{display_name}")
             btn.setFixedWidth(150)
             btn.setFixedHeight(105)
-            btn.setToolTip(name)
+            btn.setToolTip(f"{name} ({'Resim' if is_img else 'Video'})")
             btn.setStyleSheet(
                 self._DRAWER_BTN_STYLE_ACTIVE if is_active
                 else self._DRAWER_BTN_STYLE_NORMAL
@@ -234,7 +290,7 @@ class PlayerUIMixin:
             btn = self._drawer_buttons[index]
             btn.setIcon(icon)
             btn.setIconSize(QSize(130, 70))
-            new_text = btn.text().replace("🎬\n", "")
+            new_text = btn.text().replace("🎬\n", "").replace("🖼️\n", "")
             btn.setText(new_text)
 
     def _refresh_drawer_highlight(self):
@@ -268,11 +324,17 @@ class PlayerUIMixin:
     def _has_videos(self, directory):
         video_extensions = {'.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv',
                             '.webm', '.m4v', '.ts', '.m2ts', '.ogv', '.3gp'}
+        image_extensions = {'.png', '.jpg', '.jpeg', '.bmp', '.webp', '.gif',
+                            '.tiff', '.tif', '.svg', '.jfif', '.avif'}
+        valid_extensions = set(video_extensions)
+        if getattr(self, 'show_images', False):
+            valid_extensions.update(image_extensions)
+
         try:
             for entry in os.scandir(directory):
                 if entry.is_file():
                     ext = os.path.splitext(entry.name)[1].lower()
-                    if ext in video_extensions:
+                    if ext in valid_extensions:
                         return True
         except Exception:
             pass
@@ -323,6 +385,12 @@ class PlayerUIMixin:
             QFrame { background-color: #0f172a; border-top: 1px solid rgba(255, 255, 255, 0.1); }
         """)
         
+        # YouTube tarzı önizleme tooltip'i ve arkaplan iş parçacığı
+        self.preview_tooltip = VideoPreviewTooltipWidget(self)
+        self.preview_worker = VideoPreviewWorker(self)
+        self.preview_worker.frame_ready.connect(self.on_preview_frame_ready)
+        self.preview_worker.start()
+
         controls_layout = QVBoxLayout()
         controls_layout.setContentsMargins(15, 10, 15, 15)
         controls_layout.setSpacing(10)
@@ -333,6 +401,8 @@ class PlayerUIMixin:
         self.position_slider.sliderMoved.connect(self.set_position)
         self.position_slider.sliderPressed.connect(self.slider_pressed)
         self.position_slider.sliderReleased.connect(self.slider_released)
+        self.position_slider.hover_moved.connect(self.on_slider_hover_moved)
+        self.position_slider.hover_left.connect(self.on_slider_hover_left)
         self.position_slider.setCursor(Qt.CursorShape.PointingHandCursor)
         
         self.time_label = QLabel("00:00:00 / 00:00:00")
@@ -353,7 +423,7 @@ class PlayerUIMixin:
         """)
         buttons_layout.addWidget(self.open_button)
         
-        self.drawer_toggle_btn = QPushButton("🎥 Önerilen")
+        self.drawer_toggle_btn = QPushButton("🎥 Galeri / Liste")
         self.drawer_toggle_btn.clicked.connect(self.toggle_drawer)
         self.drawer_toggle_btn.setStyleSheet(self.open_button.styleSheet())
         buttons_layout.addWidget(self.drawer_toggle_btn)
@@ -485,6 +555,53 @@ class PlayerUIMixin:
         
         return controls_panel
 
+    def _format_sec(self, seconds):
+        hours = seconds // 3600
+        minutes = (seconds % 3600) // 60
+        secs = seconds % 60
+        if hours > 0:
+            return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+        return f"{minutes:02d}:{secs:02d}"
+
+    def on_slider_hover_moved(self, ms, global_x, global_y):
+        if getattr(self, 'is_image_mode', False):
+            self.preview_tooltip.hide()
+            return
+        if self.media_player.duration() <= 0:
+            self.preview_tooltip.hide()
+            return
+        
+        file_path = self.media_player.source().toLocalFile()
+        if not file_path or not os.path.exists(file_path):
+            self.preview_tooltip.hide()
+            return
+
+        sec_int = max(0, ms // 1000)
+        tot_sec = max(0, self.media_player.duration() // 1000)
+        time_text = f"{self._format_sec(sec_int)} / {self._format_sec(tot_sec)}"
+
+        cached_bytes = self.preview_worker.get_cached_frame(file_path, sec_int)
+        pixmap = None
+        if cached_bytes:
+            pixmap = QPixmap()
+            pixmap.loadFromData(cached_bytes)
+        else:
+            self.preview_worker.request_frame(file_path, sec_int)
+
+        self.preview_tooltip.set_preview(pixmap, time_text, global_x, global_y)
+
+    def on_slider_hover_left(self):
+        if hasattr(self, 'preview_tooltip'):
+            self.preview_tooltip.hide()
+
+    def on_preview_frame_ready(self, file_path, sec_int, data):
+        current_file = self.media_player.source().toLocalFile() if hasattr(self, 'media_player') else ''
+        if current_file != file_path or not self.preview_tooltip.isVisible():
+            return
+        pixmap = QPixmap()
+        if pixmap.loadFromData(data):
+            self.preview_tooltip.thumbnail_label.setPixmap(pixmap)
+
     def create_menu_bar(self):
         menubar = self.menuBar()
         menubar.setStyleSheet("""
@@ -498,7 +615,7 @@ class PlayerUIMixin:
         
         file_menu = menubar.addMenu("📁 Dosya")
         
-        open_action = QAction("🎬 Video Aç", self)
+        open_action = QAction("🎬 Medya Aç", self)
         open_action.setShortcut(QKeySequence.StandardKey.Open)
         open_action.triggered.connect(self.open_file)
         file_menu.addAction(open_action)
@@ -528,6 +645,14 @@ class PlayerUIMixin:
         fullscreen_action.setShortcut(QKeySequence("F11"))
         fullscreen_action.triggered.connect(self.toggle_fullscreen)
         view_menu.addAction(fullscreen_action)
+        
+        view_menu.addSeparator()
+
+        self.show_images_action = QAction("🖼️ Resimleri de Göster", self)
+        self.show_images_action.setCheckable(True)
+        self.show_images_action.setChecked(getattr(self, 'show_images', False))
+        self.show_images_action.toggled.connect(self.toggle_show_images)
+        view_menu.addAction(self.show_images_action)
         
         view_menu.addSeparator()
         

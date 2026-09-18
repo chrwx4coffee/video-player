@@ -26,3 +26,9 @@ build/
 dist/
 *.spec
 *.egg-info/
+
+# Temporary / Local files
+test*.html
+*.log
+.directory
+

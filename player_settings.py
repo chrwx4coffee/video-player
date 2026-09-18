@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import (
-    QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QWidget, QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QScrollArea, QGroupBox, QSlider, QLineEdit, QListWidget
 )
 from PyQt6.QtCore import Qt
@@ -59,10 +59,6 @@ class PlayerSettingsMixin:
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
-        content = QWidget() if hasattr(self, 'QWidget') else None # Düzeltme: QWidget importunu mixinleri birleştiren dosyadan veya buradan yapacağız. Aşağıda halledeceğiz.
-        
-        # QWidget import on demand since it's commonly used here
-        from PyQt6.QtWidgets import QWidget
         content = QWidget()
         content.setStyleSheet("QWidget { background: transparent; }")
         layout = QVBoxLayout(content)
